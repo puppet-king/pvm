@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -164,7 +165,6 @@ func ParsePHPVersions(body string, baseURL string) ([]Version, error) {
 		return nil, err
 	}
 
-	// regex match
 	re := regexp.MustCompile(`(?i)<a\s+href="([^"]+)">([^<]+)</a>`)
 	matches := re.FindAllStringSubmatch(body, -1)
 
@@ -179,70 +179,54 @@ func ParsePHPVersions(body string, baseURL string) ([]Version, error) {
 		url := resolvedURL.String()
 		name := match[2]
 
-		// check if name starts with "php-devel-pack-"
 		if name != "" && len(name) > 15 && name[:15] == "php-devel-pack-" {
 			continue
 		}
-		// check if name starts with "php-debug-pack-"
 		if name != "" && len(name) > 15 && name[:15] == "php-debug-pack-" {
 			continue
 		}
-		// check if name starts with "php-test-pack-"
 		if name != "" && len(name) > 15 && name[:14] == "php-test-pack-" {
 			continue
 		}
-
-		// check if name contains "src"
 		if name != "" && strings.Contains(name, "src") {
 			continue
 		}
-
-		// check if name does not end in zip
 		if name != "" && !strings.HasSuffix(name, ".zip") {
 			continue
 		}
 
 		threadSafe := true
-
-		// check if name contains "nts" or "NTS"
 		if name != "" && (strings.Contains(name, "nts") || strings.Contains(name, "NTS")) {
 			threadSafe = false
 		}
-
-		// make sure we only get x64 versions
 		if name != "" && !strings.Contains(name, "x64") {
 			continue
 		}
 
-		// regex match name and push to versions
 		versions = append(versions, ComputeVersion(name, threadSafe, url))
 	}
+
 	return versions, nil
 }
 
 func RetrieveInstalledPHPVersions() ([]Version, error) {
 	versions := make([]Version, 0)
-	// get users home dir
 	homeDir, err := os.UserHomeDir()
-
 	if err != nil {
 		log.Fatalln(err)
 		return versions, err
 	}
 
-	// check if .pvm folder exists
 	pvmPath := filepath.Join(homeDir, ".pvm")
 	if _, err := os.Stat(pvmPath); os.IsNotExist(err) {
 		return versions, errors.New("no PHP versions installed")
 	}
 
-	// check if .pvm/versions folder exists
 	versionsPath := filepath.Join(pvmPath, "versions")
 	if _, err := os.Stat(versionsPath); os.IsNotExist(err) {
 		return versions, errors.New("no PHP versions installed")
 	}
 
-	// get all folders in .pvm/versions
 	folders, err := os.ReadDir(versionsPath)
 	if err != nil {
 		return versions, err
@@ -257,6 +241,145 @@ func RetrieveInstalledPHPVersions() ([]Version, error) {
 
 		versions = append(versions, ComputeVersion(folderName, safe, ""))
 	}
+
 	SortVersions(versions)
 	return versions, nil
+}
+
+func GetCurrentVersionFolder() string {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+
+	content, err := os.ReadFile(filepath.Join(homeDir, ".pvm", "version"))
+	if err != nil {
+		return ""
+	}
+
+	return string(content)
+}
+
+func ReadPhpIni(path string) (string, error) {
+	file, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+
+	return string(file), nil
+}
+
+type ExtensionStatus int
+
+type PhpIniDirectiveKind string
+
+type PhpIniExtension struct {
+	Name    string
+	Enabled bool
+	Line    int
+	Kind    PhpIniDirectiveKind
+}
+
+const (
+	PhpIniExtensionDirective     PhpIniDirectiveKind = "extension"
+	PhpIniZendExtensionDirective PhpIniDirectiveKind = "zend_extension"
+
+	ExtensionEnabled ExtensionStatus = iota + 1
+	ExtensionDisabled
+	ExtensionNotFound
+)
+
+func GetExtensionStatus(ini string, extension string) (ExtensionStatus, int) {
+	normalizedExtension := NormalizeExtensionName(extension)
+
+	for _, parsedExtension := range ParsePhpIniExtensions(ini) {
+		if parsedExtension.Kind != PhpIniExtensionDirective {
+			continue
+		}
+		if parsedExtension.Name != normalizedExtension {
+			continue
+		}
+
+		if parsedExtension.Enabled {
+			return ExtensionEnabled, parsedExtension.Line
+		}
+
+		return ExtensionDisabled, parsedExtension.Line
+	}
+
+	return ExtensionNotFound, -1
+}
+
+func GetDirectiveStatus(ini string, extension string) (ExtensionStatus, int, PhpIniDirectiveKind) {
+	normalizedExtension := NormalizeExtensionName(extension)
+
+	for _, parsedExtension := range ParsePhpIniExtensions(ini) {
+		if parsedExtension.Name != normalizedExtension {
+			continue
+		}
+
+		if parsedExtension.Enabled {
+			return ExtensionEnabled, parsedExtension.Line, parsedExtension.Kind
+		}
+
+		return ExtensionDisabled, parsedExtension.Line, parsedExtension.Kind
+	}
+
+	return ExtensionNotFound, -1, ""
+}
+
+func ParsePhpIniExtensions(ini string) []PhpIniExtension {
+	lines := regexp.MustCompile(`\r?\n`).Split(ini, -1)
+	directiveRe := regexp.MustCompile(`^\s*(;?)\s*(zend_extension|extension)\s*=\s*(?:"([^"]+)"|'([^']+)'|([^;\s]+))\s*(?:;.*)?$`)
+	extensions := make([]PhpIniExtension, 0)
+
+	for index, line := range lines {
+		matches := directiveRe.FindStringSubmatch(line)
+		if len(matches) == 0 {
+			continue
+		}
+
+		rawValue := matches[3]
+		if rawValue == "" {
+			rawValue = matches[4]
+		}
+		if rawValue == "" {
+			rawValue = matches[5]
+		}
+
+		name := NormalizeExtensionName(rawValue)
+		if name == "" {
+			continue
+		}
+
+		kind := PhpIniDirectiveKind(matches[2])
+		extensions = append(extensions, PhpIniExtension{
+			Name:    name,
+			Enabled: matches[1] != ";",
+			Line:    index,
+			Kind:    kind,
+		})
+	}
+
+	return extensions
+}
+
+func NormalizeExtensionName(value string) string {
+	normalized := strings.TrimSpace(value)
+
+	if idx := strings.Index(normalized, ";"); idx != -1 {
+		normalized = strings.TrimSpace(normalized[:idx])
+	}
+
+	normalized = strings.Trim(normalized, `"'`)
+	if normalized == "" {
+		return ""
+	}
+
+	normalized = strings.ReplaceAll(normalized, `\`, "/")
+	normalized = strings.ToLower(path.Base(normalized))
+	normalized = strings.TrimSuffix(normalized, ".dll")
+	normalized = strings.TrimPrefix(normalized, "php_")
+
+	return strings.TrimSpace(normalized)
 }

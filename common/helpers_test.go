@@ -1,9 +1,13 @@
 package common
 
 import (
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_ParsePHPVersions_ParsesDownloadsPHPNetArchiveListing(t *testing.T) {
@@ -64,4 +68,138 @@ func Test_Version_Compare(t *testing.T) {
 	v7 := Version{Major: 1, Minor: 2}
 
 	assert.Equal(t, v6.LessThan(v7), false)
+}
+
+func Test_ReadPhpIni_ReturnsFileContents(t *testing.T) {
+	tempDir := t.TempDir()
+	phpIniPath := filepath.Join(tempDir, "php.ini")
+	require.NoError(t, os.WriteFile(phpIniPath, []byte("extension=curl"), 0644))
+
+	contents, err := ReadPhpIni(phpIniPath)
+
+	require.NoError(t, err)
+	assert.Equal(t, "extension=curl", contents)
+}
+
+func Test_ReadPhpIni_ReturnsErrorForMissingFile(t *testing.T) {
+	contents, err := ReadPhpIni(filepath.Join(t.TempDir(), "missing.ini"))
+
+	assert.Error(t, err)
+	assert.Equal(t, "", contents)
+}
+
+func Test_GetExtensionStatus_DetectsEnabledAndDisabledExtensions(t *testing.T) {
+	ini := "extension=curl\n;extension=openssl\n"
+
+	status, line := GetExtensionStatus(ini, "curl")
+	assert.Equal(t, ExtensionEnabled, status)
+	assert.Equal(t, 0, line)
+
+	status, line = GetExtensionStatus(ini, "openssl")
+	assert.Equal(t, ExtensionDisabled, status)
+	assert.Equal(t, 1, line)
+
+	status, line = GetExtensionStatus(ini, "mbstring")
+	assert.Equal(t, ExtensionNotFound, status)
+	assert.Equal(t, -1, line)
+}
+
+func Test_NormalizeExtensionName_HandlesPathsQuotesAndDllPrefix(t *testing.T) {
+	assert.Equal(t, "curl", NormalizeExtensionName(`"ext\\php_curl.dll" ; comment`))
+	assert.Equal(t, "openssl", NormalizeExtensionName(`C:/php/ext/php_openssl.dll`))
+	assert.Equal(t, "xdebug", NormalizeExtensionName(`xdebug`))
+}
+
+func Test_ParsePhpIniExtensions_ParsesNormalizedEntries(t *testing.T) {
+	ini := strings.Join([]string{
+		`extension=php_curl.dll`,
+		`;extension="ext\\php_openssl.dll"`,
+		`extension=C:/php/ext/php_mbstring.dll ; comment`,
+		`zend_extension=php_xdebug.dll`,
+	}, "\n")
+
+	extensions := ParsePhpIniExtensions(ini)
+
+	assert.Equal(t, []PhpIniExtension{
+		{Name: "curl", Enabled: true, Line: 0, Kind: PhpIniExtensionDirective},
+		{Name: "openssl", Enabled: false, Line: 1, Kind: PhpIniExtensionDirective},
+		{Name: "mbstring", Enabled: true, Line: 2, Kind: PhpIniExtensionDirective},
+		{Name: "xdebug", Enabled: true, Line: 3, Kind: PhpIniZendExtensionDirective},
+	}, extensions)
+}
+
+func Test_ParsePhpIniExtensions_IgnoresCommentProse(t *testing.T) {
+	ini := strings.Join([]string{
+		`; <ext> is the name of the extension. Do not put extension=foo in this comment.`,
+		`; zend_extension=/full/path/to/xdebug.dll is also documented here`,
+		`extension=php_curl.dll`,
+	}, "\n")
+
+	extensions := ParsePhpIniExtensions(ini)
+
+	assert.Equal(t, []PhpIniExtension{
+		{Name: "curl", Enabled: true, Line: 2, Kind: PhpIniExtensionDirective},
+	}, extensions)
+}
+
+func Test_GetExtensionStatus_IgnoresZendExtensions(t *testing.T) {
+	ini := strings.Join([]string{
+		`zend_extension=php_xdebug.dll`,
+		`extension=php_curl.dll`,
+	}, "\n")
+
+	status, line := GetExtensionStatus(ini, "xdebug")
+	assert.Equal(t, ExtensionNotFound, status)
+	assert.Equal(t, -1, line)
+
+	status, line = GetExtensionStatus(ini, "curl")
+	assert.Equal(t, ExtensionEnabled, status)
+	assert.Equal(t, 1, line)
+}
+
+func Test_GetDirectiveStatus_FindsZendAndRegularExtensions(t *testing.T) {
+	ini := strings.Join([]string{
+		`;zend_extension=php_xdebug.dll`,
+		`extension=php_curl.dll`,
+	}, "\n")
+
+	status, line, kind := GetDirectiveStatus(ini, "xdebug")
+	assert.Equal(t, ExtensionDisabled, status)
+	assert.Equal(t, 0, line)
+	assert.Equal(t, PhpIniZendExtensionDirective, kind)
+
+	status, line, kind = GetDirectiveStatus(ini, "curl")
+	assert.Equal(t, ExtensionEnabled, status)
+	assert.Equal(t, 1, line)
+	assert.Equal(t, PhpIniExtensionDirective, kind)
+}
+
+func Test_ParsePhpIniExtensions_IgnoresBogusCommentExamplesInRealIni(t *testing.T) {
+	ini := strings.Join([]string{
+		`; Notes for Windows environments :`,
+		`;   extension=mysqli`,
+		`;   extension=/path/to/extension/mysqli.so`,
+		`; Note : The syntax used in previous PHP versions ('extension=<ext>.so' and`,
+		`; 'extension='php_<ext>.dll') is supported for legacy reasons and may be`,
+		`; move to the new ('extension=<ext>) syntax.`,
+		`;extension=curl`,
+		`;extension=mbstring`,
+		`;extension=openssl`,
+		`; bogus example: extension='php_fake.dll') is supported for legacy reasons`,
+		`; bogus example: zend_extension=/tmp/not-real-xdebug.dll is documented here`,
+	}, "\n")
+
+	extensions := ParsePhpIniExtensions(ini)
+	names := make([]string, 0, len(extensions))
+	for _, extension := range extensions {
+		names = append(names, extension.Name)
+	}
+
+	assert.NotContains(t, names, "fake")
+	assert.NotContains(t, names, "not-real-xdebug")
+	assert.NotContains(t, names, "php_<ext>")
+	assert.NotContains(t, names, "ext>) syntax")
+	assert.Contains(t, names, "curl")
+	assert.Contains(t, names, "openssl")
+	assert.Contains(t, names, "mbstring")
 }
