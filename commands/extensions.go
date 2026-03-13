@@ -146,11 +146,28 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 	changed := false
 
 	for _, extension := range extensions {
-		extensionStatus, lineNumber, directiveKind := common.GetDirectiveStatus(currentIni, extension)
-		label := extensionLabel(extension, directiveKind)
+		matches := matchingDirectiveEntries(currentIni, extension)
+		if len(matches) == 0 {
+			results = append(results, extensionResult{
+				name:    extension,
+				kind:    "error",
+				message: "Extension or Zend extension " + extension + " not found in php.ini",
+			})
+			continue
+		}
 
-		switch extensionStatus {
-		case common.ExtensionEnabled:
+		directiveKind := matches[0].Kind
+		label := extensionLabel(extension, directiveKind)
+		hasEnabled := false
+		for _, match := range matches {
+			if match.Enabled {
+				hasEnabled = true
+				break
+			}
+		}
+
+		switch {
+		case hasEnabled:
 			if command == "enable" {
 				results = append(results, extensionResult{
 					name:    extension,
@@ -160,7 +177,9 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 				continue
 			}
 
-			splitIni[lineNumber] = ";" + strings.TrimPrefix(splitIni[lineNumber], ";")
+			for _, match := range matches {
+				splitIni[match.Line] = ";" + strings.TrimPrefix(splitIni[match.Line], ";")
+			}
 			currentIni = strings.Join(splitIni, separator)
 			changed = true
 			results = append(results, extensionResult{
@@ -168,7 +187,7 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 				kind:    "success",
 				message: label + " disabled.",
 			})
-		case common.ExtensionDisabled:
+		default:
 			if command == "disable" {
 				results = append(results, extensionResult{
 					name:    extension,
@@ -178,19 +197,15 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 				continue
 			}
 
-			splitIni[lineNumber] = strings.TrimPrefix(splitIni[lineNumber], ";")
+			for _, match := range matches {
+				splitIni[match.Line] = strings.TrimPrefix(splitIni[match.Line], ";")
+			}
 			currentIni = strings.Join(splitIni, separator)
 			changed = true
 			results = append(results, extensionResult{
 				name:    extension,
 				kind:    "success",
 				message: label + " enabled.",
-			})
-		default:
-			results = append(results, extensionResult{
-				name:    extension,
-				kind:    "error",
-				message: "Extension or Zend extension " + extension + " not found in php.ini",
 			})
 		}
 	}
@@ -200,6 +215,21 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 	}
 
 	return currentIni, results, true
+}
+
+func matchingDirectiveEntries(ini string, extension string) []common.PhpIniExtension {
+	normalizedExtension := common.NormalizeExtensionName(extension)
+	matches := make([]common.PhpIniExtension, 0)
+
+	for _, entry := range common.ParsePhpIniExtensions(ini) {
+		if entry.Name != normalizedExtension {
+			continue
+		}
+
+		matches = append(matches, entry)
+	}
+
+	return matches
 }
 
 func buildExtensionInventory(ini string, extensionFiles []string) extensionInventory {

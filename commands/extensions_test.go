@@ -50,6 +50,40 @@ func TestApplyExtensionChanges_TogglesZendExtensions(t *testing.T) {
 	}, results)
 }
 
+func TestApplyExtensionChanges_DisablesAllDuplicateDirectives(t *testing.T) {
+	ini := joinLines(
+		`extension=php_curl.dll`,
+		`;extension=php_curl.dll`,
+		`extension=php_curl.dll`,
+	)
+
+	updated, results, changed := applyExtensionChanges(ini, "disable", []string{"curl"})
+
+	assert.True(t, changed)
+	assert.Equal(t, joinLines(
+		`;extension=php_curl.dll`,
+		`;extension=php_curl.dll`,
+		`;extension=php_curl.dll`,
+	), updated)
+	assert.Equal(t, []extensionResult{{name: "curl", kind: "success", message: "Extension curl disabled."}}, results)
+}
+
+func TestApplyExtensionChanges_EnablesAllDuplicateZendDirectives(t *testing.T) {
+	ini := joinLines(
+		`;zend_extension=php_xdebug.dll`,
+		`;zend_extension=php_xdebug.dll`,
+	)
+
+	updated, results, changed := applyExtensionChanges(ini, "enable", []string{"xdebug"})
+
+	assert.True(t, changed)
+	assert.Equal(t, joinLines(
+		`zend_extension=php_xdebug.dll`,
+		`zend_extension=php_xdebug.dll`,
+	), updated)
+	assert.Equal(t, []extensionResult{{name: "xdebug", kind: "success", message: "Zend extension xdebug enabled."}}, results)
+}
+
 func TestExtensions_UpdatesPhpIniOnceForMultipleExtensions(t *testing.T) {
 	homeDir := t.TempDir()
 	setHomeDir(t, homeDir)
@@ -107,6 +141,22 @@ func TestExtensions_TogglesZendExtensionFromCli(t *testing.T) {
 		`zend_extension=php_xdebug.dll`,
 		`extension=php_curl.dll`,
 	), string(contents))
+}
+
+func TestExtensions_DoesNotTouchPhpIniWithoutActiveVersionMetadata(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	versionDir := filepath.Join(homeDir, ".pvm", "versions", "8.3.1")
+	require.NoError(t, os.MkdirAll(filepath.Join(versionDir, "ext"), 0755))
+	phpIniPath := filepath.Join(versionDir, "php.ini")
+	require.NoError(t, os.WriteFile(phpIniPath, []byte(";extension=curl\n"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "ext", "php_curl.dll"), []byte(""), 0644))
+
+	Extensions([]string{"enable", "curl"})
+
+	contents, err := os.ReadFile(phpIniPath)
+	require.NoError(t, err)
+	assert.Equal(t, ";extension=curl\n", string(contents))
 }
 
 func TestBuildExtensionInventory_SeparatesRegularAndZendExtensions(t *testing.T) {

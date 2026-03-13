@@ -45,6 +45,21 @@ pvm install 8.2
 
 Will install PHP 8.2 at the latest patch.
 
+```
+pvm extensions list
+```
+Will show regular and Zend extensions for the active PHP version, including whether each extension is enabled, disabled, available in `ext`, or missing from disk.
+
+```
+pvm extensions enable curl,openssl
+```
+Will enable one or more extensions that already have entries in the active version's `php.ini`.
+
+```
+pvm extensions disable xdebug
+```
+Will disable an extension or Zend extension in the active version's `php.ini`.
+
 ## Composer support
 `pvm` now installs also composer with each php version installed.
 It will install Composer latest stable release for PHP >= 7.2 and Composer latest 2.2.x LTS for PHP < 7.2.

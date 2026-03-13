@@ -175,11 +175,19 @@ func Test_GetDirectiveStatus_FindsZendAndRegularExtensions(t *testing.T) {
 }
 
 func Test_ParsePhpIniExtensions_IgnoresBogusCommentExamplesInRealIni(t *testing.T) {
-	fixturePath := filepath.Join("..", "php8.5.ini-production")
-	body, err := os.ReadFile(fixturePath)
-	require.NoError(t, err)
-
-	ini := string(body) + "\n; bogus example: extension='php_fake.dll') is supported for legacy reasons\n; bogus example: zend_extension=/tmp/not-real-xdebug.dll is documented here\n"
+	ini := strings.Join([]string{
+		`; Notes for Windows environments :`,
+		`;   extension=mysqli`,
+		`;   extension=/path/to/extension/mysqli.so`,
+		`; Note : The syntax used in previous PHP versions ('extension=<ext>.so' and`,
+		`; 'extension='php_<ext>.dll') is supported for legacy reasons and may be`,
+		`; move to the new ('extension=<ext>) syntax.`,
+		`;extension=curl`,
+		`;extension=mbstring`,
+		`;extension=openssl`,
+		`; bogus example: extension='php_fake.dll') is supported for legacy reasons`,
+		`; bogus example: zend_extension=/tmp/not-real-xdebug.dll is documented here`,
+	}, "\n")
 
 	extensions := ParsePhpIniExtensions(ini)
 	names := make([]string, 0, len(extensions))
