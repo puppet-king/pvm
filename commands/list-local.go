@@ -1,31 +1,36 @@
 package commands
 
 import (
+	"fmt"
 	"hjbdev/pvm/common"
 	"hjbdev/pvm/theme"
-	"strings"
 
 	"github.com/fatih/color"
 )
 
-func ListLocal() {
+func ListLocal() error {
 	versions, err := common.RetrieveInstalledPHPVersions()
 	if err != nil {
-		theme.Error(err.Error())
+		return err
 	}
 
 	theme.Title("Installed PHP versions")
 
 	currentVersion := common.GetCurrentVersionFolder()
-	currentVersionSafe := !strings.Contains(strings.ToLower(currentVersion), "nts")
-	currentVersionNumber := common.ComputeVersion(currentVersion, currentVersionSafe, "")
+	currentVersionNumber, currentVersionErr := common.ParseVersion(currentVersion, common.IsThreadSafeName(currentVersion), "")
 
 	for _, version := range versions {
 		label := version.StringShort()
-		if currentVersion != "" && version.Same(currentVersionNumber) {
+		if currentVersionErr == nil && version.Same(currentVersionNumber) {
 			label += " (current)"
 		}
 
 		color.White("    " + label)
 	}
+
+	if currentVersion != "" && currentVersionErr != nil {
+		return fmt.Errorf("invalid current version metadata: %w", currentVersionErr)
+	}
+
+	return nil
 }

@@ -3,16 +3,15 @@ package commands
 import (
 	"hjbdev/pvm/common"
 	"hjbdev/pvm/theme"
-	"log"
 	"slices"
 
 	"github.com/fatih/color"
 )
 
-func ListRemote() {
+func ListRemote() error {
 	versions, err := common.RetrievePHPVersions()
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	common.SortVersions(versions)
@@ -28,4 +27,6 @@ func ListRemote() {
 		}
 		color.White(found + "   " + version.StringShort())
 	}
+
+	return nil
 }

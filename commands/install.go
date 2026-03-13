@@ -6,7 +6,6 @@ import (
 	"hjbdev/pvm/common"
 	"hjbdev/pvm/theme"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path"
@@ -14,199 +13,133 @@ import (
 	"strings"
 )
 
-func Install(args []string) {
-	if len(args) < 2 {
-		theme.Error("You must specify a version to install.")
-		return
+func Install(args []string) error {
+	return runInstall(args)
+}
+
+func runInstall(args []string) error {
+	request, err := parseInstallRequest(args)
+	if err != nil {
+		return err
 	}
 
-	desireThreadSafe := true
-	if len(args) > 2 {
-		if args[2] == "nts" {
-			desireThreadSafe = false
-		}
+	threadSafetyLabel := "thread safe"
+	if !request.ThreadSafe {
+		threadSafetyLabel = "non-thread safe"
 	}
-
-	var threadSafeString string
-	if desireThreadSafe {
-		threadSafeString = "thread safe"
-	} else {
-		threadSafeString = "non-thread safe"
-	}
-
-	if desireThreadSafe {
-		theme.Warning("Thread safe version will be installed")
-	} else {
-		theme.Warning("Non-thread safe version will be installed")
-	}
-
-	desiredVersionNumbers := common.ComputeVersion(args[1], desireThreadSafe, "")
-
-	if desiredVersionNumbers == (common.Version{}) {
-		theme.Error("Invalid version specified")
-		return
-	}
-
-	// Get the desired version from the user input
-	desiredMajorVersion := desiredVersionNumbers.Major
-	desiredMinorVersion := desiredVersionNumbers.Minor
-	desiredPatchVersion := desiredVersionNumbers.Patch
+	theme.Warning(fmt.Sprintf("%s version will be installed", titlePhrase(threadSafetyLabel)))
 
 	versions, err := common.RetrievePHPVersions()
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
-	// find desired version
-	var desiredVersion common.Version
-
-	if desiredMajorVersion > -1 && desiredMinorVersion > -1 && desiredPatchVersion > -1 {
-		desiredVersion = FindExactVersion(versions, desiredMajorVersion, desiredMinorVersion, desiredPatchVersion, desireThreadSafe)
-	}
-
-	if desiredMajorVersion > -1 && desiredMinorVersion > -1 && desiredPatchVersion == -1 {
-		desiredVersion = FindLatestPatch(versions, desiredMajorVersion, desiredMinorVersion, desireThreadSafe)
-	}
-
-	if desiredMajorVersion > -1 && desiredMinorVersion == -1 && desiredPatchVersion == -1 {
-		desiredVersion = FindLatestMinor(versions, desiredMajorVersion, desireThreadSafe)
-	}
-
-	if desiredVersion == (common.Version{}) {
-		theme.Error(fmt.Sprintf("Could not find the desired version: %s %s", args[1], threadSafeString))
-		return
+	desiredVersion, ok := resolveInstallVersion(versions, request)
+	if !ok {
+		return fmt.Errorf("could not find the desired version: %s %s", args[1], threadSafetyLabel)
 	}
 
 	fmt.Printf("Installing PHP %s\n", desiredVersion)
 
-	homeDir, err := os.UserHomeDir()
-
+	paths, err := common.NewPVMPaths()
 	if err != nil {
-		log.Fatalln(err)
+		return err
+	}
+	if err := ensureInstallDirs(paths); err != nil {
+		return err
 	}
 
-	// check if .pvm folder exists
-	pvmPath := filepath.Join(homeDir, ".pvm")
-	if _, err := os.Stat(pvmPath); os.IsNotExist(err) {
-		theme.Info("Creating .pvm folder in home directory")
-		os.Mkdir(pvmPath, 0755)
+	archivePath, phpPath, err := downloadPHPArchive(paths, desiredVersion)
+	if err != nil {
+		return err
 	}
-
-	// check if .pvm/versions folder exists
-	versionsPath := filepath.Join(pvmPath, "versions")
-	if _, err := os.Stat(versionsPath); os.IsNotExist(err) {
-		theme.Info("Creating .pvm/versions folder in home directory")
-		os.Mkdir(versionsPath, 0755)
+	if err := unzip(archivePath, phpPath); err != nil {
+		return err
 	}
-
-	theme.Info("Downloading")
-
-	// zip filename from url
-	zipUrl := desiredVersion.Url
-	zipFileName := path.Base(desiredVersion.Url)
-	zipPath := filepath.Join(versionsPath, zipFileName)
-
-	// check if zip already exists
-	if _, err := os.Stat(zipPath); err == nil {
-		theme.Error(fmt.Sprintf("PHP %s already exists", desiredVersion))
-		return
-	}
-
-	// Get the data
-	if _, err := downloadFile(zipUrl, zipPath); err != nil {
-		log.Fatalf("Error while downloading PHP from %v: %v!", zipUrl, err)
-	}
-
-	// extract the zip file to a folder
-	phpFolder := strings.Replace(zipFileName, ".zip", "", -1)
-	phpPath := filepath.Join(versionsPath, phpFolder)
-	theme.Info("Unzipping")
-	Unzip(zipPath, phpPath)
-
-	// remove the zip file
 	theme.Info("Cleaning up")
-	err = os.Remove(zipPath)
-	if err != nil {
-		log.Fatalln(err)
+	if err := os.Remove(archivePath); err != nil {
+		return err
 	}
-
-	// install composer
-	composerFolderPath := filepath.Join(phpPath, "composer")
-	if _, err := os.Stat(composerFolderPath); os.IsNotExist(err) {
-		theme.Info("Creating composer folder")
-		os.Mkdir(composerFolderPath, 0755)
-	}
-
-	composerPath := filepath.Join(composerFolderPath, "composer.phar")
-	composerUrl := "https://getcomposer.org/download/latest-stable/composer.phar"
-	if desiredVersion.LessThan(common.Version{Major: 7, Minor: 2}) {
-		composerUrl = "https://getcomposer.org/download/latest-2.2.x/composer.phar"
-	}
-
-	if _, err := downloadFile(composerUrl, composerPath); err != nil {
-		log.Fatalf("Error while downloading Composer from %v: %v!", composerUrl, err)
+	if err := installComposerForVersion(phpPath, desiredVersion); err != nil {
+		return err
 	}
 
 	theme.Success(fmt.Sprintf("Finished installing PHP %s", desiredVersion))
+	return nil
 }
 
-func Unzip(src, dest string) error {
+func parseInstallRequest(args []string) (common.VersionSpec, error) {
+	if len(args) < 2 {
+		return common.VersionSpec{}, fmt.Errorf("you must specify a version to install")
+	}
+
+	threadSafe := true
+	if len(args) > 2 && args[2] == "nts" {
+		threadSafe = false
+	}
+
+	return common.ParseVersionSpec(args[1], threadSafe)
+}
+
+func ensureInstallDirs(paths common.PVMPaths) error {
+	if err := os.MkdirAll(paths.VersionsDir, 0755); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func downloadPHPArchive(paths common.PVMPaths, version common.Version) (string, string, error) {
+	theme.Info("Downloading")
+	zipFileName := path.Base(version.Url)
+	zipPath := filepath.Join(paths.VersionsDir, zipFileName)
+	if _, err := os.Stat(zipPath); err == nil {
+		return "", "", fmt.Errorf("PHP %s already exists", version)
+	}
+	if err := downloadFile(version.Url, zipPath); err != nil {
+		return "", "", fmt.Errorf("error while downloading PHP from %s: %w", version.Url, err)
+	}
+
+	phpFolder := strings.TrimSuffix(zipFileName, ".zip")
+	return zipPath, filepath.Join(paths.VersionsDir, phpFolder), nil
+}
+
+func installComposerForVersion(phpPath string, version common.Version) error {
+	composerFolderPath := filepath.Join(phpPath, "composer")
+	if err := os.MkdirAll(composerFolderPath, 0755); err != nil {
+		return err
+	}
+
+	composerURL := composerURLForVersion(version)
+	composerPath := filepath.Join(composerFolderPath, "composer.phar")
+	if err := downloadFile(composerURL, composerPath); err != nil {
+		return fmt.Errorf("error while downloading Composer from %v: %w", composerURL, err)
+	}
+
+	return nil
+}
+
+func composerURLForVersion(version common.Version) string {
+	if version.LessThan(common.Version{Major: 7, Minor: 2}) {
+		return "https://getcomposer.org/download/latest-2.2.x/composer.phar"
+	}
+
+	return "https://getcomposer.org/download/latest-stable/composer.phar"
+}
+
+func unzip(src, dest string) error {
 	r, err := zip.OpenReader(src)
 	if err != nil {
 		return err
 	}
-	defer func() {
-		if err := r.Close(); err != nil {
-			panic(err)
-		}
-	}()
+	defer r.Close()
 
-	os.MkdirAll(dest, 0755)
-
-	// Closure to address file descriptors issue with all the deferred .Close() methods
-	extractAndWriteFile := func(f *zip.File) error {
-		rc, err := f.Open()
-		if err != nil {
-			return err
-		}
-		defer func() {
-			if err := rc.Close(); err != nil {
-				panic(err)
-			}
-		}()
-
-		path := filepath.Join(dest, f.Name)
-
-		// Check for ZipSlip (Directory traversal)
-		if !strings.HasPrefix(path, filepath.Clean(dest)+string(os.PathSeparator)) {
-			return fmt.Errorf("illegal file path: %s", path)
-		}
-
-		if f.FileInfo().IsDir() {
-			os.MkdirAll(path, f.Mode())
-		} else {
-			os.MkdirAll(filepath.Dir(path), f.Mode())
-			f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, f.Mode())
-			if err != nil {
-				return err
-			}
-			defer func() {
-				if err := f.Close(); err != nil {
-					panic(err)
-				}
-			}()
-
-			_, err = io.Copy(f, rc)
-			if err != nil {
-				return err
-			}
-		}
-		return nil
+	if err := os.MkdirAll(dest, 0755); err != nil {
+		return err
 	}
 
-	for _, f := range r.File {
-		err := extractAndWriteFile(f)
-		if err != nil {
+	for _, file := range r.File {
+		if err := extractZipFile(dest, file); err != nil {
 			return err
 		}
 	}
@@ -214,85 +147,60 @@ func Unzip(src, dest string) error {
 	return nil
 }
 
-func FindExactVersion(versions []common.Version, major int, minor int, patch int, threadSafe bool) common.Version {
-	for _, version := range versions {
-		if version.ThreadSafe != threadSafe {
-			continue
-		}
-		if version.Major == major && version.Minor == minor && version.Patch == patch {
-			return version
-		}
-	}
-
-	return common.Version{}
-}
-
-func FindLatestPatch(versions []common.Version, major int, minor int, threadSafe bool) common.Version {
-	latestPatch := common.Version{}
-
-	for _, version := range versions {
-		if version.ThreadSafe != threadSafe {
-			continue
-		}
-		if version.Major == major && version.Minor == minor {
-			if latestPatch.Patch == -1 || version.Patch > latestPatch.Patch {
-				latestPatch = version
-			}
-		}
-	}
-
-	return latestPatch
-}
-
-func FindLatestMinor(versions []common.Version, major int, threadSafe bool) common.Version {
-	latestMinor := common.Version{}
-
-	for _, version := range versions {
-		if version.ThreadSafe != threadSafe {
-			continue
-		}
-		if version.Major == major {
-			if latestMinor == (common.Version{}) || version.Minor > latestMinor.Minor {
-				latestMinor = version
-				continue
-			}
-
-			if version.Minor == latestMinor.Minor && version.Patch > latestMinor.Patch {
-				latestMinor = version
-			}
-		}
-	}
-
-	return latestMinor
-}
-
-func downloadFile(fileUrl string, filePath string) (bool, error) {
-	downloadResponse, err := http.Get(fileUrl)
+func extractZipFile(dest string, file *zip.File) error {
+	rc, err := file.Open()
 	if err != nil {
-		return false, err
+		return err
+	}
+	defer rc.Close()
+
+	targetPath := filepath.Join(dest, file.Name)
+	if !strings.HasPrefix(targetPath, filepath.Clean(dest)+string(os.PathSeparator)) {
+		return fmt.Errorf("illegal file path: %s", targetPath)
 	}
 
-	defer downloadResponse.Body.Close()
-
-	if downloadResponse.StatusCode != http.StatusOK {
-		return false, fmt.Errorf("unexpected status code while downloading %s: %d", fileUrl, downloadResponse.StatusCode)
+	if file.FileInfo().IsDir() {
+		return os.MkdirAll(targetPath, file.Mode())
+	}
+	if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+		return err
 	}
 
-	// Create the file
+	out, err := os.OpenFile(targetPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, file.Mode())
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, rc)
+	return err
+}
+
+func downloadFile(fileURL string, filePath string) error {
+	response, err := http.Get(fileURL)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected status code while downloading %s: %d", fileURL, response.StatusCode)
+	}
+
 	out, err := os.Create(filePath)
 	if err != nil {
-		return false, err
+		return err
+	}
+	defer out.Close()
+
+	_, err = io.Copy(out, response.Body)
+	return err
+}
+
+func titlePhrase(value string) string {
+	if value == "" {
+		return ""
 	}
 
-	// Write the body to file
-	_, err = io.Copy(out, downloadResponse.Body)
-
-	if err != nil {
-		out.Close()
-		return false, err
-	}
-
-	// Close the file
-	out.Close()
-	return true, nil
+	return strings.ToUpper(value[:1]) + value[1:]
 }

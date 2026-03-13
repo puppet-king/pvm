@@ -38,83 +38,74 @@ type extensionInventory struct {
 	ZendExtensions []extensionListItem
 }
 
-func Extensions(args []string) {
+func Extensions(args []string) error {
 	if len(args) < 1 {
-		theme.Error("You must specify an action.")
 		theme.Info("Usage: pvm extensions <list|ls|enable|disable> [extension[,extension...]]")
-		return
+		return fmt.Errorf("you must specify an action")
 	}
 
 	currentVersion := common.GetCurrentVersionFolder()
 	if currentVersion == "" {
-		theme.Error("You do not have an active PHP version.")
 		theme.Info("Select a PHP version with `pvm use <version>` first.")
-		return
+		return fmt.Errorf("you do not have an active PHP version")
 	}
 
 	command := args[0]
 	if command != "list" && command != "ls" && command != "enable" && command != "disable" {
-		theme.Error("Invalid action. Must be 'list', 'ls', 'enable' or 'disable'.")
-		return
+		return fmt.Errorf("invalid action. must be 'list', 'ls', 'enable' or 'disable'")
 	}
 
-	homeDir, err := os.UserHomeDir()
+	paths, err := common.NewPVMPaths()
 	if err != nil {
-		theme.Error("Could not determine your home directory.")
-		return
+		return fmt.Errorf("could not determine your home directory: %w", err)
 	}
 
-	versionPath := filepath.Join(homeDir, ".pvm", "versions", currentVersion)
+	versionPath := paths.VersionDir(currentVersion)
 	if _, err := os.Stat(versionPath); os.IsNotExist(err) {
-		theme.Error("The specified version does not exist.")
-		return
+		return fmt.Errorf("the specified version does not exist")
 	}
 
 	iniPath := filepath.Join(versionPath, "php.ini")
 	ini, err := common.ReadPhpIni(iniPath)
 	if err != nil {
-		theme.Error("Could not read php.ini for the active PHP version.")
-		return
+		return fmt.Errorf("could not read php.ini for the active PHP version")
 	}
 
 	if command == "list" || command == "ls" {
-		listExtensions(versionPath, ini)
-		return
+		return listExtensions(versionPath, ini)
 	}
 
 	if len(args) < 2 {
-		theme.Error("You must specify at least one extension.")
 		theme.Info("Usage: pvm extensions <enable|disable> <extension[,extension...]>")
-		return
+		return fmt.Errorf("you must specify at least one extension")
 	}
 
 	extensions := normalizeExtensions(args[1])
 	if len(extensions) == 0 {
-		theme.Error("You must specify at least one extension.")
-		return
+		return fmt.Errorf("you must specify at least one extension")
 	}
 
 	newIni, results, changed := applyExtensionChanges(ini, command, extensions)
 	if changed {
 		if err := os.WriteFile(iniPath, []byte(newIni), 0644); err != nil {
-			theme.Error("Could not update php.ini for the active PHP version.")
-			return
+			return fmt.Errorf("could not update php.ini for the active PHP version")
 		}
 	}
 
 	reportExtensionResults(results)
+	return nil
 }
 
-func listExtensions(versionPath string, ini string) {
+func listExtensions(versionPath string, ini string) error {
 	extensionFiles, err := readAvailableExtensionFiles(versionPath)
 	if err != nil {
-		theme.Error("Could not read the ext directory for the active PHP version.")
-		return
+		return fmt.Errorf("could not read the ext directory for the active PHP version")
 	}
 
 	inventory := buildExtensionInventory(ini, extensionFiles)
 	reportExtensionGroup("Extensions", inventory.Extensions)
 	reportExtensionGroup("Zend extensions", inventory.ZendExtensions)
+	return nil
 }
 
 func normalizeExtensions(raw string) []string {

@@ -3,6 +3,8 @@ package main
 import (
 	"hjbdev/pvm/commands"
 	"os"
+
+	"hjbdev/pvm/theme"
 )
 
 func main() {
@@ -26,20 +28,27 @@ func main() {
 		return
 	}
 
+	var err error
+
 	switch args[0] {
 	case "help":
 		commands.Help(false)
 	case "ls", "list":
-		commands.List(args[1:])
+		err = commands.List(args[1:])
 	case "bin":
-		commands.Bin()
+		err = commands.Bin()
 	case "install", "i":
-		commands.Install(args)
+		err = commands.Install(args)
 	case "use", "u":
-		commands.Use(args[1:])
+		err = commands.Use(args[1:])
 	case "extensions", "e":
-		commands.Extensions(args[1:])
+		err = commands.Extensions(args[1:])
 	default:
 		commands.Help(true)
+	}
+
+	if err != nil {
+		theme.Error(err.Error())
+		os.Exit(1)
 	}
 }

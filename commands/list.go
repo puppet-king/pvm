@@ -1,20 +1,23 @@
 package commands
 
-import "hjbdev/pvm/theme"
+import (
+	"fmt"
+	"hjbdev/pvm/theme"
+)
 
-func List(args []string) {
+func List(args []string) error {
 	action, ok := parseListAction(args)
 	if !ok {
 		theme.Error("Invalid list action.")
 		theme.Info("Usage: pvm list [remote]")
-		return
+		return fmt.Errorf("invalid list action")
 	}
 
 	switch action {
 	case "remote":
-		ListRemote()
+		return ListRemote()
 	default:
-		ListLocal()
+		return ListLocal()
 	}
 }
 

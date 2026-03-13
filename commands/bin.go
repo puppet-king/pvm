@@ -3,19 +3,19 @@ package commands
 import (
 	"fmt"
 	"hjbdev/pvm/theme"
-	"log"
-	"os"
-	"path/filepath"
+
+	"hjbdev/pvm/common"
 )
 
-func Bin() {
+func Bin() error {
 	theme.Title("pvm: PHP Version Manager")
 
-	homeDir, err := os.UserHomeDir()
+	paths, err := common.NewPVMPaths()
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	fmt.Println("Add the following directory to your PATH:")
-	fmt.Println("    " + filepath.Join(homeDir, ".pvm", "bin"))
+	fmt.Println("    " + paths.BinDir)
+	return nil
 }
