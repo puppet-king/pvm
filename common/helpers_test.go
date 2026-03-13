@@ -173,3 +173,25 @@ func Test_GetDirectiveStatus_FindsZendAndRegularExtensions(t *testing.T) {
 	assert.Equal(t, 1, line)
 	assert.Equal(t, PhpIniExtensionDirective, kind)
 }
+
+func Test_ParsePhpIniExtensions_IgnoresBogusCommentExamplesInRealIni(t *testing.T) {
+	fixturePath := filepath.Join("..", "php8.5.ini-production")
+	body, err := os.ReadFile(fixturePath)
+	require.NoError(t, err)
+
+	ini := string(body) + "\n; bogus example: extension='php_fake.dll') is supported for legacy reasons\n; bogus example: zend_extension=/tmp/not-real-xdebug.dll is documented here\n"
+
+	extensions := ParsePhpIniExtensions(ini)
+	names := make([]string, 0, len(extensions))
+	for _, extension := range extensions {
+		names = append(names, extension.Name)
+	}
+
+	assert.NotContains(t, names, "fake")
+	assert.NotContains(t, names, "not-real-xdebug")
+	assert.NotContains(t, names, "php_<ext>")
+	assert.NotContains(t, names, "ext>) syntax")
+	assert.Contains(t, names, "curl")
+	assert.Contains(t, names, "openssl")
+	assert.Contains(t, names, "mbstring")
+}
