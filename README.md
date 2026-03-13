@@ -2,9 +2,6 @@
 
 [Support this project](https://github.com/sponsors/hjbdev)
 
-> [!TIP]
-> Looking for the 0.x (composer) version? See the [v0 branch](https://github.com/hjbdev/pvm/tree/v0).
-
 Removing the hassle of changing PHP versions in the CLI on Windows.
 
 This package has a much more niche use case than nvm does. When developing on Windows and using the integrated terminal, it's quite difficult to get those terminals to _actually_ listen to PATH changes.
