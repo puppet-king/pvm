@@ -3,7 +3,6 @@ package commands
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/fatih/color"
@@ -248,31 +247,4 @@ func TestFormatExtensionItem_FormatsNameBeforeTags(t *testing.T) {
 	})
 
 	assert.Equal(t, "xdebug [enabled] [missing file]", formatted)
-}
-
-func setHomeDir(t *testing.T, homeDir string) {
-	t.Helper()
-	t.Setenv("HOME", homeDir)
-}
-
-func writeActiveVersionMetadata(t *testing.T, homeDir string, version string) {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".pvm"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".pvm", "version"), []byte(version), 0644))
-}
-
-func writeActivePhpVersion(t *testing.T, homeDir string, version string, ini string) string {
-	t.Helper()
-	writeActiveVersionMetadata(t, homeDir, version)
-	versionDir := filepath.Join(homeDir, ".pvm", "versions", version)
-	require.NoError(t, os.MkdirAll(filepath.Join(versionDir, "ext"), 0755))
-	phpIniPath := filepath.Join(versionDir, "php.ini")
-	require.NoError(t, os.WriteFile(phpIniPath, []byte(ini), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "ext", "php_curl.dll"), []byte(""), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "ext", "php_openssl.dll"), []byte(""), 0644))
-	return phpIniPath
-}
-
-func joinLines(lines ...string) string {
-	return strings.Join(lines, "\n")
 }
