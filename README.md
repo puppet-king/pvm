@@ -57,5 +57,12 @@ composer --version
 
 To compile this project use:
 ```shell
-GOOS=windows GOARCH=amd64 go build -o pvm.exe
+bash ./build.sh
 ```
+
+To override the embedded version for a release-style local build:
+```shell
+VERSION=1.2.1 bash ./build.sh
+```
+
+GitHub releases are built automatically from pushed tags and publish both `pvm.exe` and `install.ps1` as release assets.

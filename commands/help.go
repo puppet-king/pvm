@@ -5,9 +5,11 @@ import (
 	"hjbdev/pvm/theme"
 )
 
+var version = "dev"
+
 func Help(notFoundError bool) {
 	theme.Title("pvm: PHP Version Manager")
-	theme.Info("Version 1.2.2")
+	theme.Info(fmt.Sprintf("Version %s", version))
 
 	if notFoundError {
 		theme.Error("Command not found")
