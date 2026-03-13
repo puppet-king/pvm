@@ -8,15 +8,18 @@ import (
 	"github.com/fatih/color"
 )
 
+var retrievePHPVersions = common.RetrievePHPVersions
+var retrieveInstalledPHPVersions = common.RetrieveInstalledPHPVersions
+
 func ListRemote() error {
-	versions, err := common.RetrievePHPVersions()
+	versions, err := retrievePHPVersions()
 	if err != nil {
 		return err
 	}
 
 	common.SortVersions(versions)
 
-	installedVersions, _ := common.RetrieveInstalledPHPVersions()
+	installedVersions, _ := retrieveInstalledPHPVersions()
 
 	theme.Title("PHP versions available")
 	for _, version := range versions {

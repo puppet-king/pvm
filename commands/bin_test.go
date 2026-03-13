@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestBin_PrintsPvmBinPath(t *testing.T) {
@@ -12,7 +13,7 @@ func TestBin_PrintsPvmBinPath(t *testing.T) {
 	setHomeDir(t, homeDir)
 
 	output := captureStdout(t, func() {
-		Bin()
+		require.NoError(t, Bin())
 	})
 
 	assert.Contains(t, output, "Add the following directory to your PATH:")

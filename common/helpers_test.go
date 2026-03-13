@@ -78,6 +78,34 @@ func Test_ParseVersion_RequiresFullSemanticVersion(t *testing.T) {
 	assert.Error(t, err)
 }
 
+func Test_SortVersions_OrdersByVersionThenThreadSafety(t *testing.T) {
+	versions := []Version{
+		{Major: 8, Minor: 4, Patch: 1, ThreadSafe: true},
+		{Major: 8, Minor: 3, Patch: 10, ThreadSafe: false},
+		{Major: 8, Minor: 3, Patch: 10, ThreadSafe: true},
+	}
+
+	SortVersions(versions)
+
+	assert.Equal(t, []Version{
+		{Major: 8, Minor: 3, Patch: 10, ThreadSafe: true},
+		{Major: 8, Minor: 3, Patch: 10, ThreadSafe: false},
+		{Major: 8, Minor: 4, Patch: 1, ThreadSafe: true},
+	}, versions)
+}
+
+func Test_IsThreadSafeName_IsCaseInsensitive(t *testing.T) {
+	assert.True(t, IsThreadSafeName("php-8.3.10-Win32-vs16-x64.zip"))
+	assert.False(t, IsThreadSafeName("php-8.3.10-NTS-Win32-vs16-x64.zip"))
+}
+
+func Test_IsSupportedArchiveName_RejectsUnsupportedArchives(t *testing.T) {
+	assert.False(t, isSupportedArchiveName("php-debug-pack-8.3.14-Win32-vs16-x64.zip"))
+	assert.False(t, isSupportedArchiveName("php-8.3.14-src.zip"))
+	assert.False(t, isSupportedArchiveName("php-8.3.14-Win32-vs16-x86.zip"))
+	assert.True(t, isSupportedArchiveName("php-8.3.14-Win32-vs16-x64.zip"))
+}
+
 func Test_ReadPhpIni_ReturnsFileContents(t *testing.T) {
 	tempDir := t.TempDir()
 	phpIniPath := filepath.Join(tempDir, "php.ini")

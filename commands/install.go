@@ -120,7 +120,7 @@ func installComposerForVersion(phpPath string, version common.Version) error {
 }
 
 func composerURLForVersion(version common.Version) string {
-	if version.LessThan(common.Version{Major: 7, Minor: 2}) {
+	if version.Compare(common.Version{Major: 7, Minor: 2, Patch: 0}) == -1 {
 		return "https://getcomposer.org/download/latest-2.2.x/composer.phar"
 	}
 

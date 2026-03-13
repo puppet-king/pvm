@@ -181,6 +181,43 @@ func TestExtensions_DoesNotTouchPhpIniWithoutActiveVersionMetadata(t *testing.T)
 	assert.Equal(t, ";extension=curl\n", string(contents))
 }
 
+func TestExtensions_RejectsInvalidAction(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActiveVersionMetadata(t, homeDir, "8.3.1")
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".pvm", "versions", "8.3.1"), 0755))
+
+	err := Extensions([]string{"weird"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid action")
+}
+
+func TestExtensions_ReturnsErrorWhenActiveVersionDirMissing(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActiveVersionMetadata(t, homeDir, "8.3.1")
+
+	err := Extensions([]string{"list"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist")
+}
+
+func TestListExtensions_ReturnsErrorWhenExtDirMissing(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActiveVersionMetadata(t, homeDir, "8.3.1")
+	versionDir := filepath.Join(homeDir, ".pvm", "versions", "8.3.1")
+	require.NoError(t, os.MkdirAll(versionDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "php.ini"), []byte("extension=curl\n"), 0644))
+
+	err := Extensions([]string{"list"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ext directory")
+}
+
 func TestBuildExtensionInventory_SeparatesRegularAndZendExtensions(t *testing.T) {
 	ini := joinLines(
 		`extension=php_curl.dll`,

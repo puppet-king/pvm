@@ -103,6 +103,56 @@ func TestUse_WritesLaunchersAndCurrentVersionMetadata(t *testing.T) {
 	assert.Contains(t, string(composerSh), filepath.Join(versionDir, "composer", "composer.phar"))
 }
 
+func TestRunUse_ReturnsErrorWhenNoVersionsInstalled(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+
+	err := runUse([]string{"8.3"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no PHP versions installed")
+}
+
+func TestWriteLaunchers_ReplacesExistingLauncherFiles(t *testing.T) {
+	binDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "php.bat"), []byte("old"), 0644))
+	require.NoError(t, os.WriteFile(filepath.Join(binDir, "php"), []byte("old"), 0644))
+
+	err := writeLaunchers(binDir, []launcherSpec{{
+		name:       "php",
+		windowsCmd: "new bat",
+		unixCmd:    "new sh",
+	}})
+
+	require.NoError(t, err)
+	batContents, err := os.ReadFile(filepath.Join(binDir, "php.bat"))
+	require.NoError(t, err)
+	assert.Equal(t, "new bat", string(batContents))
+	shContents, err := os.ReadFile(filepath.Join(binDir, "php"))
+	require.NoError(t, err)
+	assert.Equal(t, "new sh", string(shContents))
+}
+
+func TestRefreshExtLink_ReplacesExistingLink(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping filesystem link test in short mode")
+	}
+
+	binDir := t.TempDir()
+	firstTarget := filepath.Join(t.TempDir(), "ext-a")
+	secondTarget := filepath.Join(t.TempDir(), "ext-b")
+	require.NoError(t, os.MkdirAll(firstTarget, 0755))
+	require.NoError(t, os.MkdirAll(secondTarget, 0755))
+	require.NoError(t, os.Symlink(firstTarget, filepath.Join(binDir, "ext")))
+
+	err := refreshExtLink(binDir, secondTarget)
+
+	require.NoError(t, err)
+	resolved, err := os.Readlink(filepath.Join(binDir, "ext"))
+	require.NoError(t, err)
+	assert.Equal(t, secondTarget, resolved)
+}
+
 func mustDirEntry(t *testing.T, name string) os.DirEntry {
 	t.Helper()
 	dir := t.TempDir()
