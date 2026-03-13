@@ -10,9 +10,13 @@ This utility changes that.
 
 ## Installation
 
-Download the latest pvm version from the releases page.
+`pvm` currently supports x64 Windows only.
 
-Create the folder `%UserProfile%\.pvm\bin` (e.g. `C:\Users\Harry\.pvm\bin`) and drop the pvm exe in there. Add the folder to your PATH.
+```powershell
+irm https://pvm.hjb.dev/install.ps1 | iex
+```
+
+You can still install manually by downloading the latest `pvm.exe` release, placing it in `%UserProfile%\.pvm\bin` (for example `C:\Users\Harry\.pvm\bin`), and adding that folder to your PATH.
 
 ## Commands
 ```
