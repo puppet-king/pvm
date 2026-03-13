@@ -39,10 +39,7 @@ type extensionInventory struct {
 }
 
 func Extensions(args []string) error {
-	if len(args) < 1 {
-		theme.Info("Usage: pvm extensions <list|ls|enable|disable> [extension[,extension...]]")
-		return fmt.Errorf("you must specify an action")
-	}
+	showUsageAfterList := len(args) == 0
 
 	currentVersion := common.GetCurrentVersionFolder()
 	if currentVersion == "" {
@@ -50,8 +47,13 @@ func Extensions(args []string) error {
 		return fmt.Errorf("you do not have an active PHP version")
 	}
 
-	command := args[0]
+	command := "list"
+	if len(args) > 0 {
+		command = args[0]
+	}
+
 	if command != "list" && command != "ls" && command != "enable" && command != "disable" {
+		printExtensionsUsage()
 		return fmt.Errorf("invalid action. must be 'list', 'ls', 'enable' or 'disable'")
 	}
 
@@ -72,11 +74,17 @@ func Extensions(args []string) error {
 	}
 
 	if command == "list" || command == "ls" {
-		return listExtensions(versionPath, ini)
+		if err := listExtensions(versionPath, ini); err != nil {
+			return err
+		}
+		if showUsageAfterList {
+			printExtensionsUsage()
+		}
+		return nil
 	}
 
 	if len(args) < 2 {
-		theme.Info("Usage: pvm extensions <enable|disable> <extension[,extension...]>")
+		printExtensionsToggleUsage()
 		return fmt.Errorf("you must specify at least one extension")
 	}
 
@@ -94,6 +102,14 @@ func Extensions(args []string) error {
 
 	reportExtensionResults(results)
 	return nil
+}
+
+func printExtensionsUsage() {
+	theme.Info("Usage: pvm extensions <list|ls|enable|disable> [extension[,extension...]]")
+}
+
+func printExtensionsToggleUsage() {
+	theme.Info("Usage: pvm extensions <enable|disable> <extension[,extension...]>")
 }
 
 func listExtensions(versionPath string, ini string) error {
