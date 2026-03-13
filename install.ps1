@@ -155,7 +155,7 @@ function Install-Pvm {
 
   Write-Output "${C_GREEN}pvm was installed successfully!${C_RESET}"
   Write-Output "The binary is located at ${PvmExe}`n"
-  Write-Output "Restart your terminal/editor, then run 'pvm path' to confirm your PATH is set up correctly.`n"
+  Write-Output "Restart your terminal/editor, then run 'pvm help'. You should see pvm!`n"
 }
 
 Install-Pvm -Version $Version

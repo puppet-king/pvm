@@ -3,7 +3,6 @@ package commands
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/fatih/color"
@@ -143,6 +142,73 @@ func TestExtensions_TogglesZendExtensionFromCli(t *testing.T) {
 	), string(contents))
 }
 
+func TestExtensions_ListAliasMatchesListAction(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActivePhpVersion(t, homeDir, "8.3.1", joinLines(
+		`extension=php_curl.dll`,
+		`;zend_extension=php_xdebug.dll`,
+	))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".pvm", "versions", "8.3.1", "ext", "php_xdebug.dll"), []byte(""), 0644))
+
+	listOutput := captureStdout(t, func() {
+		Extensions([]string{"list"})
+	})
+	lsOutput := captureStdout(t, func() {
+		Extensions([]string{"ls"})
+	})
+
+	assert.Equal(t, listOutput, lsOutput)
+	assert.Contains(t, lsOutput, "Extensions")
+	assert.Contains(t, lsOutput, "Zend extensions")
+	assert.Contains(t, lsOutput, "curl")
+	assert.Contains(t, lsOutput, "xdebug")
+}
+
+func TestExtensions_DefaultsToListAndPrintsUsage(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActivePhpVersion(t, homeDir, "8.3.1", joinLines(
+		`extension=php_curl.dll`,
+		`;zend_extension=php_xdebug.dll`,
+	))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".pvm", "versions", "8.3.1", "ext", "php_xdebug.dll"), []byte(""), 0644))
+
+	var err error
+	output := captureStdout(t, func() {
+		err = Extensions(nil)
+	})
+
+	require.NoError(t, err)
+	assert.Contains(t, output, "Extensions")
+	assert.Contains(t, output, "Zend extensions")
+	assert.Contains(t, output, "curl")
+	assert.Contains(t, output, "xdebug")
+	assert.Contains(t, output, "Usage: pvm extensions <list|ls|enable|disable> [extension[,extension...]]")
+}
+
+func TestExtensions_ExplicitListDoesNotPrintUsage(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActivePhpVersion(t, homeDir, "8.3.1", joinLines(
+		`extension=php_curl.dll`,
+		`;zend_extension=php_xdebug.dll`,
+	))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".pvm", "versions", "8.3.1", "ext", "php_xdebug.dll"), []byte(""), 0644))
+
+	listOutput := captureStdout(t, func() {
+		err := Extensions([]string{"list"})
+		require.NoError(t, err)
+	})
+	lsOutput := captureStdout(t, func() {
+		err := Extensions([]string{"ls"})
+		require.NoError(t, err)
+	})
+
+	assert.NotContains(t, listOutput, "Usage: pvm extensions <list|ls|enable|disable> [extension[,extension...]]")
+	assert.NotContains(t, lsOutput, "Usage: pvm extensions <list|ls|enable|disable> [extension[,extension...]]")
+}
+
 func TestExtensions_DoesNotTouchPhpIniWithoutActiveVersionMetadata(t *testing.T) {
 	homeDir := t.TempDir()
 	setHomeDir(t, homeDir)
@@ -157,6 +223,43 @@ func TestExtensions_DoesNotTouchPhpIniWithoutActiveVersionMetadata(t *testing.T)
 	contents, err := os.ReadFile(phpIniPath)
 	require.NoError(t, err)
 	assert.Equal(t, ";extension=curl\n", string(contents))
+}
+
+func TestExtensions_RejectsInvalidAction(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActiveVersionMetadata(t, homeDir, "8.3.1")
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".pvm", "versions", "8.3.1"), 0755))
+
+	err := Extensions([]string{"weird"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid action")
+}
+
+func TestExtensions_ReturnsErrorWhenActiveVersionDirMissing(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActiveVersionMetadata(t, homeDir, "8.3.1")
+
+	err := Extensions([]string{"list"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "does not exist")
+}
+
+func TestListExtensions_ReturnsErrorWhenExtDirMissing(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActiveVersionMetadata(t, homeDir, "8.3.1")
+	versionDir := filepath.Join(homeDir, ".pvm", "versions", "8.3.1")
+	require.NoError(t, os.MkdirAll(versionDir, 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "php.ini"), []byte("extension=curl\n"), 0644))
+
+	err := Extensions([]string{"list"})
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ext directory")
 }
 
 func TestBuildExtensionInventory_SeparatesRegularAndZendExtensions(t *testing.T) {
@@ -225,31 +328,4 @@ func TestFormatExtensionItem_FormatsNameBeforeTags(t *testing.T) {
 	})
 
 	assert.Equal(t, "xdebug [enabled] [missing file]", formatted)
-}
-
-func setHomeDir(t *testing.T, homeDir string) {
-	t.Helper()
-	t.Setenv("HOME", homeDir)
-}
-
-func writeActiveVersionMetadata(t *testing.T, homeDir string, version string) {
-	t.Helper()
-	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".pvm"), 0755))
-	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".pvm", "version"), []byte(version), 0644))
-}
-
-func writeActivePhpVersion(t *testing.T, homeDir string, version string, ini string) string {
-	t.Helper()
-	writeActiveVersionMetadata(t, homeDir, version)
-	versionDir := filepath.Join(homeDir, ".pvm", "versions", version)
-	require.NoError(t, os.MkdirAll(filepath.Join(versionDir, "ext"), 0755))
-	phpIniPath := filepath.Join(versionDir, "php.ini")
-	require.NoError(t, os.WriteFile(phpIniPath, []byte(ini), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "ext", "php_curl.dll"), []byte(""), 0644))
-	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "ext", "php_openssl.dll"), []byte(""), 0644))
-	return phpIniPath
-}
-
-func joinLines(lines ...string) string {
-	return strings.Join(lines, "\n")
 }

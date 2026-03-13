@@ -3,29 +3,42 @@ package commands
 import (
 	"hjbdev/pvm/common"
 	"hjbdev/pvm/theme"
-	"log"
 	"slices"
 
 	"github.com/fatih/color"
 )
 
-func ListRemote() {
-	versions, err := common.RetrievePHPVersions()
+var retrievePHPVersions = common.RetrievePHPVersions
+var retrieveInstalledPHPVersions = common.RetrieveInstalledPHPVersions
+
+func ListRemote() error {
+	versions, err := retrievePHPVersions()
 	if err != nil {
-		log.Fatalln(err)
+		return err
 	}
 
 	common.SortVersions(versions)
 
-	installedVersions, _ := common.RetrieveInstalledPHPVersions()
+	installedVersions, _ := retrieveInstalledPHPVersions()
+
+	currentVersion := common.GetCurrentVersionFolder()
+	currentVersionNumber, currentVersionErr := common.ParseVersion(currentVersion, common.IsThreadSafeName(currentVersion), "")
 
 	theme.Title("PHP versions available")
 	for _, version := range versions {
+		label := version.StringShort()
+
 		idx := slices.IndexFunc(installedVersions, func(v common.Version) bool { return v.Same(version) })
-		found := " "
 		if idx != -1 {
-			found = "*"
+			if currentVersionErr == nil && version.Same(currentVersionNumber) {
+				label += " " + color.GreenString("[current]")
+			} else {
+				label += " " + color.CyanString("[installed]")
+			}
 		}
-		color.White(found + "   " + version.StringShort())
+
+		color.White("    " + label)
 	}
+
+	return nil
 }

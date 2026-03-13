@@ -56,18 +56,54 @@ func Test_Version_Compare(t *testing.T) {
 
 	assert.Equal(t, v1.LessThan(v2), true)
 	assert.Equal(t, v1.Same(v3), false)
+}
 
-	// testing versions with "nulled" (-1) values
+func Test_ParseVersionSpec_AcceptsMajorMinorAndPatch(t *testing.T) {
+	spec, err := ParseVersionSpec("8.3.10", true)
 
-	v4 := Version{Major: 1, Minor: 2, Patch: -1}
-	v5 := Version{Major: 1, Minor: 2, Patch: 3}
+	assert.NoError(t, err)
+	assert.Equal(t, VersionSpec{Major: 8, Minor: 3, Patch: 10, HasMinor: true, HasPatch: true, ThreadSafe: true}, spec)
+}
 
-	assert.Equal(t, v4.LessThan(v5), false)
+func Test_ParseVersionSpec_AcceptsPartialVersions(t *testing.T) {
+	spec, err := ParseVersionSpec("8.3", false)
 
-	v6 := Version{Major: 1, Minor: -1}
-	v7 := Version{Major: 1, Minor: 2}
+	assert.NoError(t, err)
+	assert.Equal(t, VersionSpec{Major: 8, Minor: 3, HasMinor: true, ThreadSafe: false}, spec)
+}
 
-	assert.Equal(t, v6.LessThan(v7), false)
+func Test_ParseVersion_RequiresFullSemanticVersion(t *testing.T) {
+	_, err := ParseVersion("8.3", true, "")
+
+	assert.Error(t, err)
+}
+
+func Test_SortVersions_OrdersByVersionThenThreadSafety(t *testing.T) {
+	versions := []Version{
+		{Major: 8, Minor: 4, Patch: 1, ThreadSafe: true},
+		{Major: 8, Minor: 3, Patch: 10, ThreadSafe: false},
+		{Major: 8, Minor: 3, Patch: 10, ThreadSafe: true},
+	}
+
+	SortVersions(versions)
+
+	assert.Equal(t, []Version{
+		{Major: 8, Minor: 3, Patch: 10, ThreadSafe: true},
+		{Major: 8, Minor: 3, Patch: 10, ThreadSafe: false},
+		{Major: 8, Minor: 4, Patch: 1, ThreadSafe: true},
+	}, versions)
+}
+
+func Test_IsThreadSafeName_IsCaseInsensitive(t *testing.T) {
+	assert.True(t, IsThreadSafeName("php-8.3.10-Win32-vs16-x64.zip"))
+	assert.False(t, IsThreadSafeName("php-8.3.10-NTS-Win32-vs16-x64.zip"))
+}
+
+func Test_IsSupportedArchiveName_RejectsUnsupportedArchives(t *testing.T) {
+	assert.False(t, isSupportedArchiveName("php-debug-pack-8.3.14-Win32-vs16-x64.zip"))
+	assert.False(t, isSupportedArchiveName("php-8.3.14-src.zip"))
+	assert.False(t, isSupportedArchiveName("php-8.3.14-Win32-vs16-x86.zip"))
+	assert.True(t, isSupportedArchiveName("php-8.3.14-Win32-vs16-x64.zip"))
 }
 
 func Test_ReadPhpIni_ReturnsFileContents(t *testing.T) {

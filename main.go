@@ -2,18 +2,19 @@ package main
 
 import (
 	"hjbdev/pvm/commands"
-	"hjbdev/pvm/theme"
 	"os"
 	"runtime"
+
+	"hjbdev/pvm/theme"
 )
 
 func main() {
 	args := os.Args[1:]
 
-	os := runtime.GOOS
+	runtimeOS := runtime.GOOS
 	arch := runtime.GOARCH
 
-	if os != "windows" {
+	if runtimeOS != "windows" {
 		theme.Error("pvm currently only works on Windows.")
 		return
 	}
@@ -28,22 +29,27 @@ func main() {
 		return
 	}
 
+	var err error
+
 	switch args[0] {
 	case "help":
 		commands.Help(false)
 	case "ls", "list":
-		commands.List()
-	case "ls remote", "ls-remote", "list remote", "list-remote":
-		commands.ListRemote()
-	case "path":
-		commands.Path()
-	case "install":
-		commands.Install(args)
-	case "use":
-		commands.Use(args[1:])
-	case "extensions", "ext":
-		commands.Extensions(args[1:])
+		err = commands.List(args[1:])
+	case "bin":
+		err = commands.Bin()
+	case "install", "i":
+		err = commands.Install(args)
+	case "use", "u":
+		err = commands.Use(args[1:])
+	case "extensions", "e":
+		err = commands.Extensions(args[1:])
 	default:
 		commands.Help(true)
+	}
+
+	if err != nil {
+		theme.Error(err.Error())
+		os.Exit(1)
 	}
 }
