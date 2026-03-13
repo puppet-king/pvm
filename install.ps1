@@ -93,7 +93,9 @@ function Install-Pvm {
   }
 
   if ($DownloadWithoutCurl -or ($LASTEXITCODE -ne 0)) {
-    Write-Warning "The command 'curl.exe $Url -o $TempExe' exited with code ${LASTEXITCODE}`nTrying an alternative download method..."
+    if (-not $DownloadWithoutCurl) {
+      Write-Warning "The command 'curl.exe $Url -o $TempExe' exited with code ${LASTEXITCODE}`nTrying an alternative download method..."
+    }
     try {
       Invoke-RestMethod -Uri $Url -OutFile $TempExe
     } catch {
@@ -135,7 +137,14 @@ function Install-Pvm {
     if (-not $NoPathUpdate) {
       $Path += $PvmBin
       Write-Env -Key 'Path' -Value ($Path -join ';')
-      $env:PATH = $Path -join ';'
+      $CurrentProcessPath = @()
+      if ($env:PATH) {
+        $CurrentProcessPath = $env:PATH -split ';'
+      }
+
+      if ($CurrentProcessPath -notcontains $PvmBin) {
+        $env:PATH = if ($env:PATH) { "$env:PATH;$PvmBin" } else { $PvmBin }
+      }
     } else {
       Write-Output "Skipping adding '${PvmBin}' to the user's %PATH%`n"
     }
