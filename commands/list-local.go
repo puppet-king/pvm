@@ -22,7 +22,7 @@ func ListLocal() error {
 	for _, version := range versions {
 		label := version.StringShort()
 		if currentVersionErr == nil && version.Same(currentVersionNumber) {
-			label += " (current)"
+			label += " " + color.GreenString("[current]")
 		}
 
 		color.White("    " + label)

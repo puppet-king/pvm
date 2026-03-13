@@ -22,7 +22,7 @@ func TestList_MarksCurrentVersionFromVersionMetadata(t *testing.T) {
 		List(nil)
 	})
 
-	assert.Contains(t, output, "8.3.1 (current)")
+	assert.Contains(t, output, "8.3.1 [current]")
 	assert.NotContains(t, output, "8.2.15 (current)")
 }
 
@@ -36,7 +36,7 @@ func TestList_SkipsCurrentMarkerWithoutVersionMetadata(t *testing.T) {
 	})
 
 	assert.Contains(t, output, "8.3.1")
-	assert.NotContains(t, output, "(current)")
+	assert.NotContains(t, output, "[current]")
 }
 
 func TestParseListAction_DefaultsToLocal(t *testing.T) {
@@ -105,9 +105,9 @@ func TestListRemote_MarksInstalledVersionsAndSortsOutput(t *testing.T) {
 	})
 
 	assert.Contains(t, output, "PHP versions available")
-	assert.Contains(t, output, "*   8.3.10")
-	assert.Contains(t, output, "    8.4.1")
-	assert.Less(t, indexOfLine(output, "*   8.3.10"), indexOfLine(output, "    8.4.1"))
+	assert.Contains(t, output, "8.3.10 [installed]")
+	assert.Contains(t, output, "8.4.1")
+	assert.Less(t, indexOfLine(output, "8.3.10 [installed]"), indexOfLine(output, "8.4.1"))
 }
 
 func TestListRemote_ReturnsFetchError(t *testing.T) {
