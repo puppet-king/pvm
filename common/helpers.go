@@ -6,6 +6,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -139,27 +140,43 @@ func SortVersions(input []Version) []Version {
 }
 
 func RetrievePHPVersions() ([]Version, error) {
-	// perform get request to https://windows.php.net/downloads/releases/archives/
-	resp, err := http.Get("https://windows.php.net/downloads/releases/archives/")
+	resp, err := http.Get("https://downloads.php.net/~windows/releases/archives/")
 	if err != nil {
 		return nil, err
 	}
-	// We Read the response body on the line below.
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("unexpected status code while retrieving PHP versions: %d", resp.StatusCode)
+	}
+
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, err
 	}
-	// Convert the body to type string
-	sb := string(body)
+
+	return ParsePHPVersions(string(body), "https://downloads.php.net/~windows/releases/archives/")
+}
+
+func ParsePHPVersions(body string, baseURL string) ([]Version, error) {
+	parsedBaseURL, err := url.Parse(baseURL)
+	if err != nil {
+		return nil, err
+	}
 
 	// regex match
-	re := regexp.MustCompile(`<A HREF="([a-zA-Z0-9./-]+)">([a-zA-Z0-9./-]+)</A>`)
-	matches := re.FindAllStringSubmatch(sb, -1)
+	re := regexp.MustCompile(`(?i)<a\s+href="([^"]+)">([^<]+)</a>`)
+	matches := re.FindAllStringSubmatch(body, -1)
 
 	versions := make([]Version, 0)
 
 	for _, match := range matches {
-		url := match[1]
+		resolvedURL, err := parsedBaseURL.Parse(match[1])
+		if err != nil {
+			continue
+		}
+
+		url := resolvedURL.String()
 		name := match[2]
 
 		// check if name starts with "php-devel-pack-"

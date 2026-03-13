@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -101,8 +102,8 @@ func Install(args []string) {
 	theme.Info("Downloading")
 
 	// zip filename from url
-	zipUrl := "https://windows.php.net" + desiredVersion.Url
-	zipFileName := strings.Split(desiredVersion.Url, "/")[len(strings.Split(desiredVersion.Url, "/"))-1]
+	zipUrl := desiredVersion.Url
+	zipFileName := path.Base(desiredVersion.Url)
 	zipPath := filepath.Join(versionsPath, zipFileName)
 
 	// check if zip already exists
@@ -251,10 +252,13 @@ func FindLatestMinor(versions []common.Version, major int, threadSafe bool) comm
 			continue
 		}
 		if version.Major == major {
-			if latestMinor.Minor == -1 || version.Minor > latestMinor.Minor {
-				if latestMinor.Patch == -1 || version.Patch > latestMinor.Patch {
-					latestMinor = version
-				}
+			if latestMinor == (common.Version{}) || version.Minor > latestMinor.Minor {
+				latestMinor = version
+				continue
+			}
+
+			if version.Minor == latestMinor.Minor && version.Patch > latestMinor.Patch {
+				latestMinor = version
 			}
 		}
 	}
@@ -269,6 +273,10 @@ func downloadFile(fileUrl string, filePath string) (bool, error) {
 	}
 
 	defer downloadResponse.Body.Close()
+
+	if downloadResponse.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("unexpected status code while downloading %s: %d", fileUrl, downloadResponse.StatusCode)
+	}
 
 	// Create the file
 	out, err := os.Create(filePath)

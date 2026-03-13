@@ -6,6 +6,45 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func Test_ParsePHPVersions_ParsesDownloadsPHPNetArchiveListing(t *testing.T) {
+	body := `<html><body>
+		<a href="/~windows/releases/">Parent Directory</a>
+		<a href="php-8.3.14-Win32-vs16-x64.zip">php-8.3.14-Win32-vs16-x64.zip</a>
+		<a href="php-8.3.14-nts-Win32-vs16-x64.zip">php-8.3.14-nts-Win32-vs16-x64.zip</a>
+		<a href="php-debug-pack-8.3.14-Win32-vs16-x64.zip">php-debug-pack-8.3.14-Win32-vs16-x64.zip</a>
+		<a href="php-8.3.14-Win32-vs16-x86.zip">php-8.3.14-Win32-vs16-x86.zip</a>
+	</body></html>`
+
+	versions, err := ParsePHPVersions(body, "https://downloads.php.net/~windows/releases/archives/")
+
+	assert.NoError(t, err)
+	assert.Len(t, versions, 2)
+	assert.Equal(t, Version{
+		Major:      8,
+		Minor:      3,
+		Patch:      14,
+		ThreadSafe: true,
+		Url:        "https://downloads.php.net/~windows/releases/archives/php-8.3.14-Win32-vs16-x64.zip",
+	}, versions[0])
+	assert.Equal(t, Version{
+		Major:      8,
+		Minor:      3,
+		Patch:      14,
+		ThreadSafe: false,
+		Url:        "https://downloads.php.net/~windows/releases/archives/php-8.3.14-nts-Win32-vs16-x64.zip",
+	}, versions[1])
+}
+
+func Test_ParsePHPVersions_ParsesLegacyUppercaseListing(t *testing.T) {
+	body := `<A HREF="/downloads/releases/archives/php-8.4.1-Win32-vs17-x64.zip">php-8.4.1-Win32-vs17-x64.zip</A>`
+
+	versions, err := ParsePHPVersions(body, "https://windows.php.net/downloads/releases/archives/")
+
+	assert.NoError(t, err)
+	assert.Len(t, versions, 1)
+	assert.Equal(t, "https://windows.php.net/downloads/releases/archives/php-8.4.1-Win32-vs17-x64.zip", versions[0].Url)
+}
+
 func Test_Version_Compare(t *testing.T) {
 	v1 := Version{Major: 1, Minor: 2, Patch: 3, ThreadSafe: false}
 	v2 := Version{Major: 1, Minor: 2, Patch: 4}
