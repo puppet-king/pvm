@@ -1,7 +1,6 @@
 # PVM for Windows
 
-> [!TIP]
-> Looking for the 0.x (composer) version? See the [v0 branch](https://github.com/hjbdev/pvm/tree/v0).
+[Support this project](https://github.com/sponsors/hjbdev)
 
 Removing the hassle of changing PHP versions in the CLI on Windows.
 
@@ -11,9 +10,13 @@ This utility changes that.
 
 ## Installation
 
-Download the latest pvm version from the releases page (1.0-alpha-1, it's currently a pre-release).
+`pvm` currently supports x64 Windows only.
 
-Create the folder `%UserProfile%\.pvm\bin` (e.g. `C:\Users\Harry\.pvm\bin`) and drop the pvm exe in there. Add the folder to your PATH.
+```powershell
+irm https://pvm.hjb.dev/install.ps1 | iex
+```
+
+You can still install manually by downloading the latest `pvm.exe` release, placing it in `%UserProfile%\.pvm\bin` (for example `C:\Users\Harry\.pvm\bin`), and adding that folder to your PATH.
 
 ## Commands
 ```
@@ -42,9 +45,24 @@ pvm install 8.2
 
 Will install PHP 8.2 at the latest patch.
 
-## Build
-
-To compile the program use:
+## Composer support
+`pvm` now installs also composer with each php version installed.
+It will install Composer latest stable release for PHP >= 7.2 and Composer latest 2.2.x LTS for PHP < 7.2.
+You'll be able to invoke composer from terminal as it is intended:
 ```shell
-GOOS=windows GOARCH=amd64 go build -o pvm.exe
+composer --version
 ```
+
+## Build this project
+
+To compile this project use:
+```shell
+bash ./build.sh
+```
+
+To override the embedded version for a release-style local build:
+```shell
+VERSION=1.2.1 bash ./build.sh
+```
+
+GitHub releases are built automatically from pushed tags and publish both `pvm.exe` and `install.ps1` as release assets.
