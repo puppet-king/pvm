@@ -3,6 +3,8 @@ package commands
 import (
 	"fmt"
 	"hjbdev/pvm/theme"
+
+	"github.com/fatih/color"
 )
 
 var version = "dev"
@@ -16,11 +18,20 @@ func Help(notFoundError bool) {
 	}
 
 	fmt.Println("Available Commands:")
-	fmt.Println("    extensions")
-	fmt.Println("    help")
-	fmt.Println("    install")
-	fmt.Println("    list")
-	fmt.Println("    list-remote")
-	fmt.Println("    path")
-	fmt.Println("    use")
+	printHelpCommand("extensions <list|ls|enable|disable> [extension[,extension...]]", "e")
+	printHelpCommand("help")
+	printHelpCommand("install", "i")
+	printHelpCommand("list [remote]", "ls")
+	printHelpCommand("bin")
+	printHelpCommand("use <version>", "u")
+}
+
+func printHelpCommand(command string, aliases ...string) {
+	line := "    " + command
+	if len(aliases) == 0 {
+		fmt.Println(line)
+		return
+	}
+
+	fmt.Println(line + " " + color.HiBlackString("(alias: %s)", aliases[0]))
 }

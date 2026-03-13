@@ -8,10 +8,9 @@ import (
 	"path/filepath"
 )
 
-func Path() {
+func Bin() {
 	theme.Title("pvm: PHP Version Manager")
 
-	// get home dir
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		log.Fatalln(err)

@@ -143,6 +143,29 @@ func TestExtensions_TogglesZendExtensionFromCli(t *testing.T) {
 	), string(contents))
 }
 
+func TestExtensions_ListAliasMatchesListAction(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	writeActivePhpVersion(t, homeDir, "8.3.1", joinLines(
+		`extension=php_curl.dll`,
+		`;zend_extension=php_xdebug.dll`,
+	))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".pvm", "versions", "8.3.1", "ext", "php_xdebug.dll"), []byte(""), 0644))
+
+	listOutput := captureStdout(t, func() {
+		Extensions([]string{"list"})
+	})
+	lsOutput := captureStdout(t, func() {
+		Extensions([]string{"ls"})
+	})
+
+	assert.Equal(t, listOutput, lsOutput)
+	assert.Contains(t, lsOutput, "Extensions")
+	assert.Contains(t, lsOutput, "Zend extensions")
+	assert.Contains(t, lsOutput, "curl")
+	assert.Contains(t, lsOutput, "xdebug")
+}
+
 func TestExtensions_DoesNotTouchPhpIniWithoutActiveVersionMetadata(t *testing.T) {
 	homeDir := t.TempDir()
 	setHomeDir(t, homeDir)

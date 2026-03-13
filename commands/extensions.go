@@ -41,7 +41,7 @@ type extensionInventory struct {
 func Extensions(args []string) {
 	if len(args) < 1 {
 		theme.Error("You must specify an action.")
-		theme.Info("Usage: pvm extensions <list|enable|disable> [extension[,extension...]]")
+		theme.Info("Usage: pvm extensions <list|ls|enable|disable> [extension[,extension...]]")
 		return
 	}
 
@@ -53,8 +53,8 @@ func Extensions(args []string) {
 	}
 
 	command := args[0]
-	if command != "list" && command != "enable" && command != "disable" {
-		theme.Error("Invalid action. Must be 'list', 'enable' or 'disable'.")
+	if command != "list" && command != "ls" && command != "enable" && command != "disable" {
+		theme.Error("Invalid action. Must be 'list', 'ls', 'enable' or 'disable'.")
 		return
 	}
 
@@ -77,7 +77,7 @@ func Extensions(args []string) {
 		return
 	}
 
-	if command == "list" {
+	if command == "list" || command == "ls" {
 		listExtensions(versionPath, ini)
 		return
 	}

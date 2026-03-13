@@ -25,7 +25,12 @@ pvm list
 Will list out all the available PHP versions you have installed
 
 ```
-pvm path
+pvm list remote
+```
+Will list the PHP versions available for installation.
+
+```
+pvm bin
 ```
 Will tell you what to put in your Path variable.
 
