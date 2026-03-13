@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/fatih/color"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +27,26 @@ func TestApplyExtensionChanges_PreservesCRLFAndAppliesMultipleChanges(t *testing
 	assert.Equal(t, []extensionResult{
 		{name: "curl", kind: "success", message: "Extension curl disabled."},
 		{name: "openssl", kind: "success", message: "Extension openssl is already disabled."},
-		{name: "missing", kind: "error", message: "Extension missing not found in php.ini"},
+		{name: "missing", kind: "error", message: "Extension or Zend extension missing not found in php.ini"},
+	}, results)
+}
+
+func TestApplyExtensionChanges_TogglesZendExtensions(t *testing.T) {
+	ini := joinLines(
+		`;zend_extension=php_xdebug.dll`,
+		`zend_extension=php_opcache.dll`,
+	)
+
+	updated, results, changed := applyExtensionChanges(ini, "enable", []string{"xdebug", "opcache"})
+
+	assert.True(t, changed)
+	assert.Equal(t, joinLines(
+		`zend_extension=php_xdebug.dll`,
+		`zend_extension=php_opcache.dll`,
+	), updated)
+	assert.Equal(t, []extensionResult{
+		{name: "xdebug", kind: "success", message: "Zend extension xdebug enabled."},
+		{name: "opcache", kind: "success", message: "Zend extension opcache is already enabled."},
 	}, results)
 }
 
@@ -47,6 +67,7 @@ func TestExtensions_HandlesMissingPhpIniGracefully(t *testing.T) {
 	setHomeDir(t, homeDir)
 	writeActiveVersionMetadata(t, homeDir, "8.3.1")
 	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".pvm", "versions", "8.3.1"), 0755))
+	require.NoError(t, os.MkdirAll(filepath.Join(homeDir, ".pvm", "versions", "8.3.1", "ext"), 0755))
 
 	assert.NotPanics(t, func() {
 		Extensions([]string{"enable", "curl"})
@@ -69,20 +90,62 @@ func TestExtensions_AppliesKnownExtensionsEvenWhenSomeAreMissing(t *testing.T) {
 	assert.Equal(t, "extension=curl\nextension=openssl\n", string(contents))
 }
 
-func TestBuildExtensionInventory_GroupsConfiguredAndAvailableExtensions(t *testing.T) {
-	ini := strings.Join([]string{
+func TestExtensions_TogglesZendExtensionFromCli(t *testing.T) {
+	homeDir := t.TempDir()
+	setHomeDir(t, homeDir)
+	phpIniPath := writeActivePhpVersion(t, homeDir, "8.3.1", joinLines(
+		`;zend_extension=php_xdebug.dll`,
+		`extension=php_curl.dll`,
+	))
+	require.NoError(t, os.WriteFile(filepath.Join(homeDir, ".pvm", "versions", "8.3.1", "ext", "php_xdebug.dll"), []byte(""), 0644))
+
+	Extensions([]string{"enable", "xdebug"})
+
+	contents, err := os.ReadFile(phpIniPath)
+	require.NoError(t, err)
+	assert.Equal(t, joinLines(
+		`zend_extension=php_xdebug.dll`,
+		`extension=php_curl.dll`,
+	), string(contents))
+}
+
+func TestBuildExtensionInventory_SeparatesRegularAndZendExtensions(t *testing.T) {
+	ini := joinLines(
 		`extension=php_curl.dll`,
 		`;extension="ext\\php_openssl.dll"`,
 		`extension=missing`,
-	}, "\n")
+		`zend_extension=php_xdebug.dll`,
+		`; zend_extension = php_opcache.dll`,
+	)
 
-	inventory := buildExtensionInventory(ini, []string{"php_curl.dll", "php_mbstring.dll", "php_openssl.dll"})
+	inventory := buildExtensionInventory(ini, []string{"php_curl.dll", "php_mbstring.dll", "php_openssl.dll", "php_opcache.dll"})
 
 	assert.Equal(t, extensionInventory{
-		Enabled:   []string{"curl", "missing (missing file)"},
-		Disabled:  []string{"openssl"},
-		Available: []string{"mbstring"},
+		Extensions: []extensionListItem{
+			{Name: "curl", Tags: []extensionStatusTag{extensionTagEnabled}},
+			{Name: "mbstring", Tags: []extensionStatusTag{extensionTagAvailable}},
+			{Name: "missing", Tags: []extensionStatusTag{extensionTagEnabled, extensionTagMissing}},
+			{Name: "openssl", Tags: []extensionStatusTag{extensionTagDisabled}},
+		},
+		ZendExtensions: []extensionListItem{
+			{Name: "opcache", Tags: []extensionStatusTag{extensionTagDisabled}},
+			{Name: "xdebug", Tags: []extensionStatusTag{extensionTagEnabled, extensionTagMissing}},
+		},
 	}, inventory)
+}
+
+func TestBuildExtensionInventory_PrefersEnabledStateWhenExtensionAppearsTwice(t *testing.T) {
+	ini := joinLines(
+		`;extension=php_curl.dll`,
+		`extension=curl`,
+		`;zend_extension=php_xdebug.dll`,
+		`zend_extension=php_xdebug.dll`,
+	)
+
+	inventory := buildExtensionInventory(ini, []string{"php_curl.dll", "php_xdebug.dll"})
+
+	assert.Equal(t, []extensionListItem{{Name: "curl", Tags: []extensionStatusTag{extensionTagEnabled}}}, inventory.Extensions)
+	assert.Equal(t, []extensionListItem{{Name: "xdebug", Tags: []extensionStatusTag{extensionTagEnabled}}}, inventory.ZendExtensions)
 }
 
 func TestReadAvailableExtensionFiles_FiltersNonDllEntries(t *testing.T) {
@@ -99,17 +162,19 @@ func TestReadAvailableExtensionFiles_FiltersNonDllEntries(t *testing.T) {
 	assert.Equal(t, []string{"php_curl.dll"}, files)
 }
 
-func TestBuildExtensionInventory_PrefersEnabledStateWhenExtensionAppearsTwice(t *testing.T) {
-	ini := strings.Join([]string{
-		`;extension=php_curl.dll`,
-		`extension=curl`,
-	}, "\n")
+func TestFormatExtensionItem_FormatsNameBeforeTags(t *testing.T) {
+	previousNoColor := color.NoColor
+	color.NoColor = true
+	t.Cleanup(func() {
+		color.NoColor = previousNoColor
+	})
 
-	inventory := buildExtensionInventory(ini, []string{"php_curl.dll"})
+	formatted := formatExtensionItem(extensionListItem{
+		Name: "xdebug",
+		Tags: []extensionStatusTag{extensionTagEnabled, extensionTagMissing},
+	})
 
-	assert.Equal(t, []string{"curl"}, inventory.Enabled)
-	assert.Empty(t, inventory.Disabled)
-	assert.Empty(t, inventory.Available)
+	assert.Equal(t, "xdebug [enabled] [missing file]", formatted)
 }
 
 func setHomeDir(t *testing.T, homeDir string) {
@@ -127,11 +192,14 @@ func writeActivePhpVersion(t *testing.T, homeDir string, version string, ini str
 	t.Helper()
 	writeActiveVersionMetadata(t, homeDir, version)
 	versionDir := filepath.Join(homeDir, ".pvm", "versions", version)
-	require.NoError(t, os.MkdirAll(versionDir, 0755))
 	require.NoError(t, os.MkdirAll(filepath.Join(versionDir, "ext"), 0755))
 	phpIniPath := filepath.Join(versionDir, "php.ini")
 	require.NoError(t, os.WriteFile(phpIniPath, []byte(ini), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "ext", "php_curl.dll"), []byte(""), 0644))
 	require.NoError(t, os.WriteFile(filepath.Join(versionDir, "ext", "php_openssl.dll"), []byte(""), 0644))
 	return phpIniPath
+}
+
+func joinLines(lines ...string) string {
+	return strings.Join(lines, "\n")
 }

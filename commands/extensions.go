@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"hjbdev/pvm/common"
 	"hjbdev/pvm/theme"
 	"os"
@@ -18,10 +19,23 @@ type extensionResult struct {
 	message string
 }
 
+type extensionStatusTag string
+
+const (
+	extensionTagEnabled   extensionStatusTag = "enabled"
+	extensionTagDisabled  extensionStatusTag = "disabled"
+	extensionTagAvailable extensionStatusTag = "available"
+	extensionTagMissing   extensionStatusTag = "missing file"
+)
+
+type extensionListItem struct {
+	Name string
+	Tags []extensionStatusTag
+}
+
 type extensionInventory struct {
-	Enabled   []string
-	Disabled  []string
-	Available []string
+	Extensions     []extensionListItem
+	ZendExtensions []extensionListItem
 }
 
 func Extensions(args []string) {
@@ -99,10 +113,8 @@ func listExtensions(versionPath string, ini string) {
 	}
 
 	inventory := buildExtensionInventory(ini, extensionFiles)
-
-	reportExtensionGroup("Enabled extensions", inventory.Enabled)
-	reportExtensionGroup("Disabled extensions", inventory.Disabled)
-	reportExtensionGroup("Available extensions", inventory.Available)
+	reportExtensionGroup("Extensions", inventory.Extensions)
+	reportExtensionGroup("Zend extensions", inventory.ZendExtensions)
 }
 
 func normalizeExtensions(raw string) []string {
@@ -134,7 +146,8 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 	changed := false
 
 	for _, extension := range extensions {
-		extensionStatus, lineNumber := common.GetExtensionStatus(currentIni, extension)
+		extensionStatus, lineNumber, directiveKind := common.GetDirectiveStatus(currentIni, extension)
+		label := extensionLabel(extension, directiveKind)
 
 		switch extensionStatus {
 		case common.ExtensionEnabled:
@@ -142,7 +155,7 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 				results = append(results, extensionResult{
 					name:    extension,
 					kind:    "success",
-					message: "Extension " + extension + " is already enabled.",
+					message: label + " is already enabled.",
 				})
 				continue
 			}
@@ -153,14 +166,14 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 			results = append(results, extensionResult{
 				name:    extension,
 				kind:    "success",
-				message: "Extension " + extension + " disabled.",
+				message: label + " disabled.",
 			})
 		case common.ExtensionDisabled:
 			if command == "disable" {
 				results = append(results, extensionResult{
 					name:    extension,
 					kind:    "success",
-					message: "Extension " + extension + " is already disabled.",
+					message: label + " is already disabled.",
 				})
 				continue
 			}
@@ -171,13 +184,13 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 			results = append(results, extensionResult{
 				name:    extension,
 				kind:    "success",
-				message: "Extension " + extension + " enabled.",
+				message: label + " enabled.",
 			})
 		default:
 			results = append(results, extensionResult{
 				name:    extension,
 				kind:    "error",
-				message: "Extension " + extension + " not found in php.ini",
+				message: "Extension or Zend extension " + extension + " not found in php.ini",
 			})
 		}
 	}
@@ -190,7 +203,8 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 }
 
 func buildExtensionInventory(ini string, extensionFiles []string) extensionInventory {
-	configured := make(map[string]common.ExtensionStatus)
+	configuredExtensions := make(map[string]common.ExtensionStatus)
+	configuredZendExtensions := make(map[string]common.ExtensionStatus)
 	available := make(map[string]struct{}, len(extensionFiles))
 
 	for _, entry := range common.ParsePhpIniExtensions(ini) {
@@ -199,11 +213,12 @@ func buildExtensionInventory(ini string, extensionFiles []string) extensionInven
 			status = common.ExtensionEnabled
 		}
 
-		if existingStatus, ok := configured[entry.Name]; ok && existingStatus == common.ExtensionEnabled {
-			continue
+		switch entry.Kind {
+		case common.PhpIniZendExtensionDirective:
+			mergeExtensionStatus(configuredZendExtensions, entry.Name, status)
+		default:
+			mergeExtensionStatus(configuredExtensions, entry.Name, status)
 		}
-
-		configured[entry.Name] = status
 	}
 
 	for _, extensionFile := range extensionFiles {
@@ -216,38 +231,66 @@ func buildExtensionInventory(ini string, extensionFiles []string) extensionInven
 	}
 
 	inventory := extensionInventory{
-		Enabled:   make([]string, 0),
-		Disabled:  make([]string, 0),
-		Available: make([]string, 0),
+		Extensions:     make([]extensionListItem, 0),
+		ZendExtensions: make([]extensionListItem, 0),
 	}
 
-	for name, status := range configured {
-		label := name
+	for name, status := range configuredExtensions {
+		item := extensionListItem{Name: name, Tags: []extensionStatusTag{statusToTag(status)}}
 		if _, ok := available[name]; !ok {
-			label += " (missing file)"
+			item.Tags = append(item.Tags, extensionTagMissing)
 		}
-
-		if status == common.ExtensionEnabled {
-			inventory.Enabled = append(inventory.Enabled, label)
-			continue
-		}
-
-		inventory.Disabled = append(inventory.Disabled, label)
+		inventory.Extensions = append(inventory.Extensions, item)
 	}
 
 	for name := range available {
-		if _, ok := configured[name]; ok {
+		if _, ok := configuredExtensions[name]; ok {
+			continue
+		}
+		if _, ok := configuredZendExtensions[name]; ok {
 			continue
 		}
 
-		inventory.Available = append(inventory.Available, name)
+		inventory.Extensions = append(inventory.Extensions, extensionListItem{
+			Name: name,
+			Tags: []extensionStatusTag{extensionTagAvailable},
+		})
 	}
 
-	sort.Strings(inventory.Enabled)
-	sort.Strings(inventory.Disabled)
-	sort.Strings(inventory.Available)
+	for name, status := range configuredZendExtensions {
+		item := extensionListItem{Name: name, Tags: []extensionStatusTag{statusToTag(status)}}
+		if _, ok := available[name]; !ok {
+			item.Tags = append(item.Tags, extensionTagMissing)
+		}
+		inventory.ZendExtensions = append(inventory.ZendExtensions, item)
+	}
+
+	sortExtensionListItems(inventory.Extensions)
+	sortExtensionListItems(inventory.ZendExtensions)
 
 	return inventory
+}
+
+func mergeExtensionStatus(configured map[string]common.ExtensionStatus, name string, status common.ExtensionStatus) {
+	if existingStatus, ok := configured[name]; ok && existingStatus == common.ExtensionEnabled {
+		return
+	}
+
+	configured[name] = status
+}
+
+func statusToTag(status common.ExtensionStatus) extensionStatusTag {
+	if status == common.ExtensionEnabled {
+		return extensionTagEnabled
+	}
+
+	return extensionTagDisabled
+}
+
+func sortExtensionListItems(items []extensionListItem) {
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].Name < items[j].Name
+	})
 }
 
 func readAvailableExtensionFiles(versionPath string) ([]string, error) {
@@ -291,14 +334,50 @@ func reportExtensionResults(results []extensionResult) {
 	}
 }
 
-func reportExtensionGroup(title string, extensions []string) {
+func extensionLabel(name string, kind common.PhpIniDirectiveKind) string {
+	if kind == common.PhpIniZendExtensionDirective {
+		return "Zend extension " + name
+	}
+
+	return "Extension " + name
+}
+
+func reportExtensionGroup(title string, items []extensionListItem) {
 	theme.Title(title)
-	if len(extensions) == 0 {
+	if len(items) == 0 {
 		color.White("    none")
 		return
 	}
 
-	for _, extension := range extensions {
-		color.White("    " + extension)
+	for _, item := range items {
+		color.White("    " + formatExtensionItem(item))
+	}
+}
+
+func formatExtensionItem(item extensionListItem) string {
+	parts := make([]string, 0, len(item.Tags)+1)
+	parts = append(parts, item.Name)
+
+	for _, tag := range item.Tags {
+		parts = append(parts, formatExtensionTag(tag))
+	}
+
+	return strings.Join(parts, " ")
+}
+
+func formatExtensionTag(tag extensionStatusTag) string {
+	label := fmt.Sprintf("[%s]", tag)
+
+	switch tag {
+	case extensionTagEnabled:
+		return color.GreenString(label)
+	case extensionTagDisabled:
+		return color.YellowString(label)
+	case extensionTagAvailable:
+		return color.CyanString(label)
+	case extensionTagMissing:
+		return color.RedString(label)
+	default:
+		return label
 	}
 }

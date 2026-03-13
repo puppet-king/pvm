@@ -115,13 +115,61 @@ func Test_ParsePhpIniExtensions_ParsesNormalizedEntries(t *testing.T) {
 		`extension=php_curl.dll`,
 		`;extension="ext\\php_openssl.dll"`,
 		`extension=C:/php/ext/php_mbstring.dll ; comment`,
+		`zend_extension=php_xdebug.dll`,
 	}, "\n")
 
 	extensions := ParsePhpIniExtensions(ini)
 
 	assert.Equal(t, []PhpIniExtension{
-		{Name: "curl", Enabled: true, Line: 0},
-		{Name: "openssl", Enabled: false, Line: 1},
-		{Name: "mbstring", Enabled: true, Line: 2},
+		{Name: "curl", Enabled: true, Line: 0, Kind: PhpIniExtensionDirective},
+		{Name: "openssl", Enabled: false, Line: 1, Kind: PhpIniExtensionDirective},
+		{Name: "mbstring", Enabled: true, Line: 2, Kind: PhpIniExtensionDirective},
+		{Name: "xdebug", Enabled: true, Line: 3, Kind: PhpIniZendExtensionDirective},
 	}, extensions)
+}
+
+func Test_ParsePhpIniExtensions_IgnoresCommentProse(t *testing.T) {
+	ini := strings.Join([]string{
+		`; <ext> is the name of the extension. Do not put extension=foo in this comment.`,
+		`; zend_extension=/full/path/to/xdebug.dll is also documented here`,
+		`extension=php_curl.dll`,
+	}, "\n")
+
+	extensions := ParsePhpIniExtensions(ini)
+
+	assert.Equal(t, []PhpIniExtension{
+		{Name: "curl", Enabled: true, Line: 2, Kind: PhpIniExtensionDirective},
+	}, extensions)
+}
+
+func Test_GetExtensionStatus_IgnoresZendExtensions(t *testing.T) {
+	ini := strings.Join([]string{
+		`zend_extension=php_xdebug.dll`,
+		`extension=php_curl.dll`,
+	}, "\n")
+
+	status, line := GetExtensionStatus(ini, "xdebug")
+	assert.Equal(t, ExtensionNotFound, status)
+	assert.Equal(t, -1, line)
+
+	status, line = GetExtensionStatus(ini, "curl")
+	assert.Equal(t, ExtensionEnabled, status)
+	assert.Equal(t, 1, line)
+}
+
+func Test_GetDirectiveStatus_FindsZendAndRegularExtensions(t *testing.T) {
+	ini := strings.Join([]string{
+		`;zend_extension=php_xdebug.dll`,
+		`extension=php_curl.dll`,
+	}, "\n")
+
+	status, line, kind := GetDirectiveStatus(ini, "xdebug")
+	assert.Equal(t, ExtensionDisabled, status)
+	assert.Equal(t, 0, line)
+	assert.Equal(t, PhpIniZendExtensionDirective, kind)
+
+	status, line, kind = GetDirectiveStatus(ini, "curl")
+	assert.Equal(t, ExtensionEnabled, status)
+	assert.Equal(t, 1, line)
+	assert.Equal(t, PhpIniExtensionDirective, kind)
 }
