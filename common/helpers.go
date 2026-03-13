@@ -259,13 +259,13 @@ func GetCurrentVersionFolder() string {
 	return string(content)
 }
 
-func ReadPhpIni(path string) string {
+func ReadPhpIni(path string) (string, error) {
 	file, err := os.ReadFile(path)
 	if err != nil {
-		panic(err)
+		return "", err
 	}
 
-	return string(file)
+	return string(file), nil
 }
 
 type ExtensionStatus int
@@ -278,9 +278,10 @@ const (
 
 func GetExtensionStatus(ini string, extension string) (ExtensionStatus, int) {
 	lines := regexp.MustCompile(`\r?\n`).Split(ini, -1)
+	extensionRe := regexp.MustCompile(`extension\s*=\s*["']?([^"']+)["']?`)
 
 	for index, line := range lines {
-		extensionMatches := regexp.MustCompile(`extension\s*=\s*["']?([^"']+)["']?`).FindStringSubmatch(line)
+		extensionMatches := extensionRe.FindStringSubmatch(line)
 		if len(extensionMatches) == 0 {
 			continue
 		}

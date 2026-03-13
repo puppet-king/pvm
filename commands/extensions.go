@@ -22,6 +22,7 @@ func Extensions(args []string) {
 	if currentVersion == "" {
 		theme.Error("You do not have an active PHP version.")
 		theme.Info("Select a PHP version with `pvm use <version>` first.")
+		return
 	}
 
 	command := args[0]
@@ -33,13 +34,13 @@ func Extensions(args []string) {
 	}
 
 	homeDir, err := os.UserHomeDir()
-
 	if err != nil {
-		panic(err)
+		theme.Error("Could not determine your home directory.")
+		return
 	}
 
-	// check if the version exists
-	if _, err := os.Stat(homeDir + "/.pvm/versions/" + currentVersion); os.IsNotExist(err) {
+	versionPath := filepath.Join(homeDir, ".pvm", "versions", currentVersion)
+	if _, err := os.Stat(versionPath); os.IsNotExist(err) {
 		theme.Error("The specified version does not exist.")
 		return
 	}
@@ -52,31 +53,44 @@ func Extensions(args []string) {
 }
 
 func handleExtension(ext string, command string, homeDir string, currentVersion string) {
-	ini := common.ReadPhpIni(homeDir + "/.pvm/versions/" + currentVersion + "/php.ini")
+	iniPath := filepath.Join(homeDir, ".pvm", "versions", currentVersion, "php.ini")
+	ini, err := common.ReadPhpIni(iniPath)
+	if err != nil {
+		theme.Error("Could not read php.ini for the active PHP version.")
+		return
+	}
+
 	splitIni := regexp.MustCompile(`\r?\n`).Split(ini, -1)
 	extensionStatus, lineNumber := common.GetExtensionStatus(ini, ext)
 
-	if extensionStatus == common.ExtensionEnabled {
+	switch extensionStatus {
+	case common.ExtensionEnabled:
 		if command == "enable" {
 			theme.Success("Extension " + ext + " is already enabled.")
 		} else {
 			disabledLine := ";" + splitIni[lineNumber]
 			splitIni[lineNumber] = disabledLine
 			newIni := strings.Join(splitIni, "\n")
-			os.WriteFile(filepath.Join(homeDir, ".pvm", "versions", currentVersion, "php.ini"), []byte(newIni), 0644)
-			theme.Success("Extension " + ext + " enabled.")
+			if err := os.WriteFile(iniPath, []byte(newIni), 0644); err != nil {
+				theme.Error("Could not update php.ini for the active PHP version.")
+				return
+			}
+			theme.Success("Extension " + ext + " disabled.")
 		}
-	} else if extensionStatus == common.ExtensionDisabled {
+	case common.ExtensionDisabled:
 		if command == "enable" {
 			enabledLine := strings.Replace(splitIni[lineNumber], ";", "", 1)
 			splitIni[lineNumber] = enabledLine
 			newIni := strings.Join(splitIni, "\n")
-			os.WriteFile(filepath.Join(homeDir, ".pvm", "versions", currentVersion, "php.ini"), []byte(newIni), 0644)
+			if err := os.WriteFile(iniPath, []byte(newIni), 0644); err != nil {
+				theme.Error("Could not update php.ini for the active PHP version.")
+				return
+			}
 			theme.Success("Extension " + ext + " enabled.")
 		} else {
 			theme.Success("Extension " + ext + " is already disabled.")
 		}
-	} else {
+	default:
 		theme.Error("Extension " + ext + " not found in php.ini")
 	}
 }

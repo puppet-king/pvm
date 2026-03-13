@@ -1,9 +1,12 @@
 package common
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func Test_ParsePHPVersions_ParsesDownloadsPHPNetArchiveListing(t *testing.T) {
@@ -64,4 +67,38 @@ func Test_Version_Compare(t *testing.T) {
 	v7 := Version{Major: 1, Minor: 2}
 
 	assert.Equal(t, v6.LessThan(v7), false)
+}
+
+func Test_ReadPhpIni_ReturnsFileContents(t *testing.T) {
+	tempDir := t.TempDir()
+	phpIniPath := filepath.Join(tempDir, "php.ini")
+	require.NoError(t, os.WriteFile(phpIniPath, []byte("extension=curl"), 0644))
+
+	contents, err := ReadPhpIni(phpIniPath)
+
+	require.NoError(t, err)
+	assert.Equal(t, "extension=curl", contents)
+}
+
+func Test_ReadPhpIni_ReturnsErrorForMissingFile(t *testing.T) {
+	contents, err := ReadPhpIni(filepath.Join(t.TempDir(), "missing.ini"))
+
+	assert.Error(t, err)
+	assert.Equal(t, "", contents)
+}
+
+func Test_GetExtensionStatus_DetectsEnabledAndDisabledExtensions(t *testing.T) {
+	ini := "extension=curl\n;extension=openssl\n"
+
+	status, line := GetExtensionStatus(ini, "curl")
+	assert.Equal(t, ExtensionEnabled, status)
+	assert.Equal(t, 0, line)
+
+	status, line = GetExtensionStatus(ini, "openssl")
+	assert.Equal(t, ExtensionDisabled, status)
+	assert.Equal(t, 1, line)
+
+	status, line = GetExtensionStatus(ini, "mbstring")
+	assert.Equal(t, ExtensionNotFound, status)
+	assert.Equal(t, -1, line)
 }
