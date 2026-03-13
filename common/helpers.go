@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -270,6 +271,12 @@ func ReadPhpIni(path string) (string, error) {
 
 type ExtensionStatus int
 
+type PhpIniExtension struct {
+	Name    string
+	Enabled bool
+	Line    int
+}
+
 const (
 	ExtensionEnabled ExtensionStatus = iota + 1
 	ExtensionDisabled
@@ -277,23 +284,66 @@ const (
 )
 
 func GetExtensionStatus(ini string, extension string) (ExtensionStatus, int) {
-	lines := regexp.MustCompile(`\r?\n`).Split(ini, -1)
-	extensionRe := regexp.MustCompile(`extension\s*=\s*["']?([^"']+)["']?`)
+	normalizedExtension := NormalizeExtensionName(extension)
 
-	for index, line := range lines {
-		extensionMatches := extensionRe.FindStringSubmatch(line)
-		if len(extensionMatches) == 0 {
+	for _, parsedExtension := range ParsePhpIniExtensions(ini) {
+		if parsedExtension.Name != normalizedExtension {
 			continue
 		}
 
-		if extensionMatches[1] == extension {
-			noWhitespace := strings.TrimSpace(lines[index])
-			if strings.HasPrefix(noWhitespace, ";") {
-				return ExtensionDisabled, index
-			}
-			return ExtensionEnabled, index
+		if parsedExtension.Enabled {
+			return ExtensionEnabled, parsedExtension.Line
 		}
+
+		return ExtensionDisabled, parsedExtension.Line
 	}
 
 	return ExtensionNotFound, -1
+}
+
+func ParsePhpIniExtensions(ini string) []PhpIniExtension {
+	lines := regexp.MustCompile(`\r?\n`).Split(ini, -1)
+	extensionRe := regexp.MustCompile(`extension\s*=\s*(.+)$`)
+	extensions := make([]PhpIniExtension, 0)
+
+	for index, line := range lines {
+		matches := extensionRe.FindStringSubmatch(line)
+		if len(matches) == 0 {
+			continue
+		}
+
+		name := NormalizeExtensionName(matches[1])
+		if name == "" {
+			continue
+		}
+
+		trimmedLine := strings.TrimSpace(line)
+		extensions = append(extensions, PhpIniExtension{
+			Name:    name,
+			Enabled: !strings.HasPrefix(trimmedLine, ";"),
+			Line:    index,
+		})
+	}
+
+	return extensions
+}
+
+func NormalizeExtensionName(value string) string {
+	normalized := strings.TrimSpace(value)
+
+	if idx := strings.Index(normalized, ";"); idx != -1 {
+		normalized = strings.TrimSpace(normalized[:idx])
+	}
+
+	normalized = strings.Trim(normalized, `"'`)
+	if normalized == "" {
+		return ""
+	}
+
+	normalized = strings.ReplaceAll(normalized, `\`, "/")
+	normalized = strings.ToLower(path.Base(normalized))
+	normalized = strings.TrimSuffix(normalized, ".dll")
+	normalized = strings.TrimPrefix(normalized, "php_")
+
+	return strings.TrimSpace(normalized)
 }

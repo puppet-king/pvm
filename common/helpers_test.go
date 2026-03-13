@@ -3,6 +3,7 @@ package common
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -101,4 +102,26 @@ func Test_GetExtensionStatus_DetectsEnabledAndDisabledExtensions(t *testing.T) {
 	status, line = GetExtensionStatus(ini, "mbstring")
 	assert.Equal(t, ExtensionNotFound, status)
 	assert.Equal(t, -1, line)
+}
+
+func Test_NormalizeExtensionName_HandlesPathsQuotesAndDllPrefix(t *testing.T) {
+	assert.Equal(t, "curl", NormalizeExtensionName(`"ext\\php_curl.dll" ; comment`))
+	assert.Equal(t, "openssl", NormalizeExtensionName(`C:/php/ext/php_openssl.dll`))
+	assert.Equal(t, "xdebug", NormalizeExtensionName(`xdebug`))
+}
+
+func Test_ParsePhpIniExtensions_ParsesNormalizedEntries(t *testing.T) {
+	ini := strings.Join([]string{
+		`extension=php_curl.dll`,
+		`;extension="ext\\php_openssl.dll"`,
+		`extension=C:/php/ext/php_mbstring.dll ; comment`,
+	}, "\n")
+
+	extensions := ParsePhpIniExtensions(ini)
+
+	assert.Equal(t, []PhpIniExtension{
+		{Name: "curl", Enabled: true, Line: 0},
+		{Name: "openssl", Enabled: false, Line: 1},
+		{Name: "mbstring", Enabled: true, Line: 2},
+	}, extensions)
 }

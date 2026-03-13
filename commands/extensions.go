@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
+
+	"github.com/fatih/color"
 )
 
 type extensionResult struct {
@@ -15,10 +18,16 @@ type extensionResult struct {
 	message string
 }
 
+type extensionInventory struct {
+	Enabled   []string
+	Disabled  []string
+	Available []string
+}
+
 func Extensions(args []string) {
-	if len(args) < 2 {
-		theme.Error("You must specify an action and an extension.")
-		theme.Info("Usage: pvm extensions <enable|disable> <extension>")
+	if len(args) < 1 {
+		theme.Error("You must specify an action.")
+		theme.Info("Usage: pvm extensions <list|enable|disable> [extension[,extension...]]")
 		return
 	}
 
@@ -30,14 +39,8 @@ func Extensions(args []string) {
 	}
 
 	command := args[0]
-	if command != "enable" && command != "disable" {
-		theme.Error("Invalid action. Must be 'enable' or 'disable'.")
-		return
-	}
-
-	extensions := normalizeExtensions(args[1])
-	if len(extensions) == 0 {
-		theme.Error("You must specify at least one extension.")
+	if command != "list" && command != "enable" && command != "disable" {
+		theme.Error("Invalid action. Must be 'list', 'enable' or 'disable'.")
 		return
 	}
 
@@ -60,6 +63,23 @@ func Extensions(args []string) {
 		return
 	}
 
+	if command == "list" {
+		listExtensions(versionPath, ini)
+		return
+	}
+
+	if len(args) < 2 {
+		theme.Error("You must specify at least one extension.")
+		theme.Info("Usage: pvm extensions <enable|disable> <extension[,extension...]>")
+		return
+	}
+
+	extensions := normalizeExtensions(args[1])
+	if len(extensions) == 0 {
+		theme.Error("You must specify at least one extension.")
+		return
+	}
+
 	newIni, results, changed := applyExtensionChanges(ini, command, extensions)
 	if changed {
 		if err := os.WriteFile(iniPath, []byte(newIni), 0644); err != nil {
@@ -71,13 +91,27 @@ func Extensions(args []string) {
 	reportExtensionResults(results)
 }
 
+func listExtensions(versionPath string, ini string) {
+	extensionFiles, err := readAvailableExtensionFiles(versionPath)
+	if err != nil {
+		theme.Error("Could not read the ext directory for the active PHP version.")
+		return
+	}
+
+	inventory := buildExtensionInventory(ini, extensionFiles)
+
+	reportExtensionGroup("Enabled extensions", inventory.Enabled)
+	reportExtensionGroup("Disabled extensions", inventory.Disabled)
+	reportExtensionGroup("Available extensions", inventory.Available)
+}
+
 func normalizeExtensions(raw string) []string {
 	parts := strings.Split(raw, ",")
 	seen := make(map[string]struct{}, len(parts))
 	extensions := make([]string, 0, len(parts))
 
 	for _, part := range parts {
-		extension := strings.TrimSpace(part)
+		extension := common.NormalizeExtensionName(part)
 		if extension == "" {
 			continue
 		}
@@ -113,7 +147,7 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 				continue
 			}
 
-			splitIni[lineNumber] = ";" + splitIni[lineNumber]
+			splitIni[lineNumber] = ";" + strings.TrimPrefix(splitIni[lineNumber], ";")
 			currentIni = strings.Join(splitIni, separator)
 			changed = true
 			results = append(results, extensionResult{
@@ -131,7 +165,7 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 				continue
 			}
 
-			splitIni[lineNumber] = strings.Replace(splitIni[lineNumber], ";", "", 1)
+			splitIni[lineNumber] = strings.TrimPrefix(splitIni[lineNumber], ";")
 			currentIni = strings.Join(splitIni, separator)
 			changed = true
 			results = append(results, extensionResult{
@@ -155,6 +189,89 @@ func applyExtensionChanges(ini string, command string, extensions []string) (str
 	return currentIni, results, true
 }
 
+func buildExtensionInventory(ini string, extensionFiles []string) extensionInventory {
+	configured := make(map[string]common.ExtensionStatus)
+	available := make(map[string]struct{}, len(extensionFiles))
+
+	for _, entry := range common.ParsePhpIniExtensions(ini) {
+		status := common.ExtensionDisabled
+		if entry.Enabled {
+			status = common.ExtensionEnabled
+		}
+
+		if existingStatus, ok := configured[entry.Name]; ok && existingStatus == common.ExtensionEnabled {
+			continue
+		}
+
+		configured[entry.Name] = status
+	}
+
+	for _, extensionFile := range extensionFiles {
+		normalized := common.NormalizeExtensionName(extensionFile)
+		if normalized == "" {
+			continue
+		}
+
+		available[normalized] = struct{}{}
+	}
+
+	inventory := extensionInventory{
+		Enabled:   make([]string, 0),
+		Disabled:  make([]string, 0),
+		Available: make([]string, 0),
+	}
+
+	for name, status := range configured {
+		label := name
+		if _, ok := available[name]; !ok {
+			label += " (missing file)"
+		}
+
+		if status == common.ExtensionEnabled {
+			inventory.Enabled = append(inventory.Enabled, label)
+			continue
+		}
+
+		inventory.Disabled = append(inventory.Disabled, label)
+	}
+
+	for name := range available {
+		if _, ok := configured[name]; ok {
+			continue
+		}
+
+		inventory.Available = append(inventory.Available, name)
+	}
+
+	sort.Strings(inventory.Enabled)
+	sort.Strings(inventory.Disabled)
+	sort.Strings(inventory.Available)
+
+	return inventory
+}
+
+func readAvailableExtensionFiles(versionPath string) ([]string, error) {
+	extPath := filepath.Join(versionPath, "ext")
+	entries, err := os.ReadDir(extPath)
+	if err != nil {
+		return nil, err
+	}
+
+	extensionFiles := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		if !strings.EqualFold(filepath.Ext(entry.Name()), ".dll") {
+			continue
+		}
+
+		extensionFiles = append(extensionFiles, entry.Name())
+	}
+
+	return extensionFiles, nil
+}
+
 func detectLineSeparator(content string) string {
 	if strings.Contains(content, "\r\n") {
 		return "\r\n"
@@ -171,5 +288,17 @@ func reportExtensionResults(results []extensionResult) {
 		}
 
 		theme.Success(result.message)
+	}
+}
+
+func reportExtensionGroup(title string, extensions []string) {
+	theme.Title(title)
+	if len(extensions) == 0 {
+		color.White("    none")
+		return
+	}
+
+	for _, extension := range extensions {
+		color.White("    " + extension)
 	}
 }
