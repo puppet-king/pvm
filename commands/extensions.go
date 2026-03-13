@@ -9,6 +9,12 @@ import (
 	"strings"
 )
 
+type extensionResult struct {
+	name    string
+	kind    string
+	message string
+}
+
 func Extensions(args []string) {
 	if len(args) < 2 {
 		theme.Error("You must specify an action and an extension.")
@@ -16,9 +22,7 @@ func Extensions(args []string) {
 		return
 	}
 
-	// determine which version is currently selected
 	currentVersion := common.GetCurrentVersionFolder()
-
 	if currentVersion == "" {
 		theme.Error("You do not have an active PHP version.")
 		theme.Info("Select a PHP version with `pvm use <version>` first.")
@@ -26,10 +30,14 @@ func Extensions(args []string) {
 	}
 
 	command := args[0]
-	ext := args[1]
-
 	if command != "enable" && command != "disable" {
 		theme.Error("Invalid action. Must be 'enable' or 'disable'.")
+		return
+	}
+
+	extensions := normalizeExtensions(args[1])
+	if len(extensions) == 0 {
+		theme.Error("You must specify at least one extension.")
 		return
 	}
 
@@ -45,52 +53,123 @@ func Extensions(args []string) {
 		return
 	}
 
-	extensions := strings.Split(ext, ",")
-
-	for _, extension := range extensions {
-		handleExtension(extension, command, homeDir, currentVersion)
-	}
-}
-
-func handleExtension(ext string, command string, homeDir string, currentVersion string) {
-	iniPath := filepath.Join(homeDir, ".pvm", "versions", currentVersion, "php.ini")
+	iniPath := filepath.Join(versionPath, "php.ini")
 	ini, err := common.ReadPhpIni(iniPath)
 	if err != nil {
 		theme.Error("Could not read php.ini for the active PHP version.")
 		return
 	}
 
-	splitIni := regexp.MustCompile(`\r?\n`).Split(ini, -1)
-	extensionStatus, lineNumber := common.GetExtensionStatus(ini, ext)
+	newIni, results, changed := applyExtensionChanges(ini, command, extensions)
+	if changed {
+		if err := os.WriteFile(iniPath, []byte(newIni), 0644); err != nil {
+			theme.Error("Could not update php.ini for the active PHP version.")
+			return
+		}
+	}
 
-	switch extensionStatus {
-	case common.ExtensionEnabled:
-		if command == "enable" {
-			theme.Success("Extension " + ext + " is already enabled.")
-		} else {
-			disabledLine := ";" + splitIni[lineNumber]
-			splitIni[lineNumber] = disabledLine
-			newIni := strings.Join(splitIni, "\n")
-			if err := os.WriteFile(iniPath, []byte(newIni), 0644); err != nil {
-				theme.Error("Could not update php.ini for the active PHP version.")
-				return
-			}
-			theme.Success("Extension " + ext + " disabled.")
+	reportExtensionResults(results)
+}
+
+func normalizeExtensions(raw string) []string {
+	parts := strings.Split(raw, ",")
+	seen := make(map[string]struct{}, len(parts))
+	extensions := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		extension := strings.TrimSpace(part)
+		if extension == "" {
+			continue
 		}
-	case common.ExtensionDisabled:
-		if command == "enable" {
-			enabledLine := strings.Replace(splitIni[lineNumber], ";", "", 1)
-			splitIni[lineNumber] = enabledLine
-			newIni := strings.Join(splitIni, "\n")
-			if err := os.WriteFile(iniPath, []byte(newIni), 0644); err != nil {
-				theme.Error("Could not update php.ini for the active PHP version.")
-				return
-			}
-			theme.Success("Extension " + ext + " enabled.")
-		} else {
-			theme.Success("Extension " + ext + " is already disabled.")
+		if _, ok := seen[extension]; ok {
+			continue
 		}
-	default:
-		theme.Error("Extension " + ext + " not found in php.ini")
+
+		seen[extension] = struct{}{}
+		extensions = append(extensions, extension)
+	}
+
+	return extensions
+}
+
+func applyExtensionChanges(ini string, command string, extensions []string) (string, []extensionResult, bool) {
+	separator := detectLineSeparator(ini)
+	splitIni := regexp.MustCompile(`\r?\n`).Split(ini, -1)
+	currentIni := ini
+	results := make([]extensionResult, 0, len(extensions))
+	changed := false
+
+	for _, extension := range extensions {
+		extensionStatus, lineNumber := common.GetExtensionStatus(currentIni, extension)
+
+		switch extensionStatus {
+		case common.ExtensionEnabled:
+			if command == "enable" {
+				results = append(results, extensionResult{
+					name:    extension,
+					kind:    "success",
+					message: "Extension " + extension + " is already enabled.",
+				})
+				continue
+			}
+
+			splitIni[lineNumber] = ";" + splitIni[lineNumber]
+			currentIni = strings.Join(splitIni, separator)
+			changed = true
+			results = append(results, extensionResult{
+				name:    extension,
+				kind:    "success",
+				message: "Extension " + extension + " disabled.",
+			})
+		case common.ExtensionDisabled:
+			if command == "disable" {
+				results = append(results, extensionResult{
+					name:    extension,
+					kind:    "success",
+					message: "Extension " + extension + " is already disabled.",
+				})
+				continue
+			}
+
+			splitIni[lineNumber] = strings.Replace(splitIni[lineNumber], ";", "", 1)
+			currentIni = strings.Join(splitIni, separator)
+			changed = true
+			results = append(results, extensionResult{
+				name:    extension,
+				kind:    "success",
+				message: "Extension " + extension + " enabled.",
+			})
+		default:
+			results = append(results, extensionResult{
+				name:    extension,
+				kind:    "error",
+				message: "Extension " + extension + " not found in php.ini",
+			})
+		}
+	}
+
+	if !changed {
+		return currentIni, results, false
+	}
+
+	return currentIni, results, true
+}
+
+func detectLineSeparator(content string) string {
+	if strings.Contains(content, "\r\n") {
+		return "\r\n"
+	}
+
+	return "\n"
+}
+
+func reportExtensionResults(results []extensionResult) {
+	for _, result := range results {
+		if result.kind == "error" {
+			theme.Error(result.message)
+			continue
+		}
+
+		theme.Success(result.message)
 	}
 }
