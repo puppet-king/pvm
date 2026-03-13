@@ -13,7 +13,7 @@ This utility changes that.
 
 ## Installation
 
-Download the latest pvm version from the releases page (1.0-alpha-1, it's currently a pre-release).
+Download the latest pvm version from the releases page.
 
 Create the folder `%UserProfile%\.pvm\bin` (e.g. `C:\Users\Harry\.pvm\bin`) and drop the pvm exe in there. Add the folder to your PATH.
 
