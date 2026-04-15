@@ -86,7 +86,7 @@ func TestDownloadFile_ReturnsErrorOnNon200(t *testing.T) {
 	}))
 	defer server.Close()
 
-	err := downloadFile(server.URL, filepath.Join(t.TempDir(), "download.zip"))
+	err := downloadFile(server.URL, filepath.Join(t.TempDir(), "download.zip"), 0)
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unexpected status code")

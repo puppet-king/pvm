@@ -49,6 +49,31 @@ func Test_ParsePHPVersions_ParsesLegacyUppercaseListing(t *testing.T) {
 	assert.Equal(t, "https://windows.php.net/downloads/releases/archives/php-8.4.1-Win32-vs17-x64.zip", versions[0].Url)
 }
 
+func Test_ParsePHPVersions_ParsesSizeFromHTMLTable(t *testing.T) {
+	body := `<html><body>
+		<table>
+		<tr><td><img src="icon.gif"></td><td><a href="php-8.3.14-Win32-vs16-x64.zip">php-8.3.14-Win32-vs16-x64.zip</a></td><td>2024-01-15 12:00</td><td>25M</td></tr>
+		<tr><td><img src="icon.gif"></td><td><a href="php-8.3.14-nts-Win32-vs16-x64.zip">php-8.3.14-nts-Win32-vs16-x64.zip</a></td><td>2024-01-15 12:00</td><td>24M</td></tr>
+		</table>
+	</body></html>`
+
+	versions, err := ParsePHPVersions(body, "https://downloads.php.net/~windows/releases/archives/")
+
+	assert.NoError(t, err)
+	assert.Len(t, versions, 2)
+	assert.Equal(t, int64(25*1024*1024), versions[0].SizeBytes)
+	assert.Equal(t, int64(24*1024*1024), versions[1].SizeBytes)
+}
+
+func Test_ParseSize_ParsesHumanReadableSizes(t *testing.T) {
+	assert.Equal(t, int64(16*1024*1024), parseSize("16M"))
+	assert.Equal(t, int64(25*1024*1024), parseSize("25M"))
+	assert.Equal(t, int64(1024), parseSize("1K"))
+	assert.Equal(t, int64(1024*1024*1024), parseSize("1G"))
+	assert.Equal(t, int64(0), parseSize(""))
+	assert.Equal(t, int64(0), parseSize("-"))
+}
+
 func Test_Version_Compare(t *testing.T) {
 	v1 := Version{Major: 1, Minor: 2, Patch: 3, ThreadSafe: false}
 	v2 := Version{Major: 1, Minor: 2, Patch: 4}

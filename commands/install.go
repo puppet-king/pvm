@@ -11,6 +11,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/cheggaaa/pb/v3"
 )
 
 func Install(args []string) error {
@@ -96,7 +98,7 @@ func downloadPHPArchive(paths common.PVMPaths, version common.Version) (string, 
 	if _, err := os.Stat(zipPath); err == nil {
 		return "", "", fmt.Errorf("PHP %s already exists", version)
 	}
-	if err := downloadFile(version.Url, zipPath); err != nil {
+	if err := downloadFile(version.Url, zipPath, version.SizeBytes); err != nil {
 		return "", "", fmt.Errorf("error while downloading PHP from %s: %w", version.Url, err)
 	}
 
@@ -112,7 +114,7 @@ func installComposerForVersion(phpPath string, version common.Version) error {
 
 	composerURL := composerURLForVersion(version)
 	composerPath := filepath.Join(composerFolderPath, "composer.phar")
-	if err := downloadFile(composerURL, composerPath); err != nil {
+	if err := downloadFile(composerURL, composerPath, 0); err != nil {
 		return fmt.Errorf("error while downloading Composer from %v: %w", composerURL, err)
 	}
 
@@ -176,8 +178,15 @@ func extractZipFile(dest string, file *zip.File) error {
 	return err
 }
 
-func downloadFile(fileURL string, filePath string) error {
+func downloadFile(fileURL string, filePath string, sizeBytes int64) error {
 	client := common.NewHTTPClient()
+
+	if os.Getenv("HTTPS_PROXY") != "" || os.Getenv("HTTP_PROXY") != "" {
+		// 只要这两个变量有一个不为空，就提示正在使用系统代理
+		theme.Info("Using system proxy configuration")
+	}
+
+	// Now download the file
 	response, err := client.Get(fileURL)
 	if err != nil {
 		return err
@@ -193,6 +202,20 @@ func downloadFile(fileURL string, filePath string) error {
 		return err
 	}
 	defer out.Close()
+
+	// Use provided sizeBytes if available, otherwise try response.ContentLength
+	contentLength := sizeBytes
+	if contentLength <= 0 {
+		contentLength = response.ContentLength
+	}
+
+	if contentLength > 0 {
+		bar := pb.Full.Start64(contentLength)
+		writer := bar.NewProxyWriter(out)
+		_, err = io.Copy(writer, response.Body)
+		bar.Finish()
+		return err
+	}
 
 	_, err = io.Copy(out, response.Body)
 	return err

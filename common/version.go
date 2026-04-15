@@ -14,6 +14,7 @@ type Version struct {
 	Patch      int
 	Url        string
 	ThreadSafe bool
+	SizeBytes  int64
 }
 
 type VersionSpec struct {
