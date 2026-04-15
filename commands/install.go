@@ -177,7 +177,8 @@ func extractZipFile(dest string, file *zip.File) error {
 }
 
 func downloadFile(fileURL string, filePath string) error {
-	response, err := http.Get(fileURL)
+	client := common.NewHTTPClient()
+	response, err := client.Get(fileURL)
 	if err != nil {
 		return err
 	}

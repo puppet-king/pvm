@@ -82,7 +82,7 @@ function Install-Pvm {
   $PvmBin = Join-Path $PvmRoot 'bin'
   $PvmExe = Join-Path $PvmBin 'pvm.exe'
   $DownloadVersion = if ($NormalizedVersion -eq "latest") { "latest/download" } else { "download/$NormalizedVersion" }
-  $Url = "https://github.com/hjbdev/pvm/releases/$DownloadVersion/pvm.exe"
+  $Url = "https://github.com/puppet-king/pvm/releases/$DownloadVersion/pvm.exe"
   $TempExe = Join-Path $PvmBin 'pvm.exe.tmp'
 
   New-Item -ItemType Directory -Force -Path $PvmBin | Out-Null

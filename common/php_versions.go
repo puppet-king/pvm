@@ -12,7 +12,8 @@ import (
 )
 
 func RetrievePHPVersions() ([]Version, error) {
-	resp, err := http.Get("https://downloads.php.net/~windows/releases/archives/")
+	client := NewHTTPClient()
+	resp, err := client.Get("https://downloads.php.net/~windows/releases/archives/")
 	if err != nil {
 		return nil, err
 	}

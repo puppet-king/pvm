@@ -13,10 +13,35 @@ This utility changes that.
 `pvm` currently supports x64 Windows only.
 
 ```powershell
-irm https://pvm.hjb.dev/install.ps1 | iex
+irm https://github.com/puppet-king/pvm/releases/latest/download/install.ps1 | iex
 ```
 
 You can still install manually by downloading the latest `pvm.exe` release, placing it in `%UserProfile%\.pvm\bin` (for example `C:\Users\Harry\.pvm\bin`), and adding that folder to your PATH.
+
+## Proxy Support
+
+`pvm` supports downloading through a proxy server. Set the `HTTPS_PROXY` environment variable before running install or install commands:
+
+```powershell
+# Set proxy (optional)
+$env:HTTPS_PROXY="http://proxy.example.com:8080"
+
+# Install pvm
+irm https://github.com/puppet-king/pvm/releases/latest/download/install.ps1 | iex
+
+# Install PHP versions (will use proxy)
+pvm install 8.3
+```
+
+Supported proxy formats:
+- `http://proxy.example.com:8080`
+- `http://user:pass@proxy.example.com:8080`
+- `socks5://proxy.example.com:1080`
+
+To bypass proxy for certain hosts, set `NO_PROXY`:
+```powershell
+$env:NO_PROXY="localhost,127.0.0.1,.local"
+```
 
 ## Commands
 ```

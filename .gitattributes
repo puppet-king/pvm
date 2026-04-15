@@ -1,4 +1,4 @@
-* text=auto
+* text=auto eol=lf
 .travis.yml export-ignore
 .styleci.yml export-ignore
 .scrutinizer.yml export-ignore
